@@ -227,6 +227,12 @@ static void on_arbiter_data(int fd, short revents, void *arg) {
                 } else if (bus_get_state() == NODE_STATE_SECONDARY) {
                     if (peer_fd >= 0) { close(peer_fd); peer_fd = -1; }
                 }
+            } else if (type == MSG_TYPE_DEGRADE_COMMAND) {
+                DegradeCommandMessage *dcmd = (DegradeCommandMessage *)msg;
+                protocol_ntoh_degrade_cmd(dcmd);
+                LOG_INFO("Received DEGRADE_COMMAND, epoch=%u, demoting to %d",
+                         dcmd->epoch, dcmd->demote_to);
+                bus_apply_degrade(dcmd->epoch);
             }
             free(msg); msg = NULL;
         }

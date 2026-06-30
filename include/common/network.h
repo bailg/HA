@@ -5,12 +5,9 @@
 #include <netinet/in.h>
 #include <signal.h>
 #include "common/protocol.h"
+#include "common/memory.h"
 
 #define MAX_TIMERS 32
-
-void* safe_malloc(size_t size);
-char* safe_strdup(const char *s);
-#define SAFE_FREE(ptr) do { if (ptr) { free(ptr); ptr = NULL; } } while(0)
 
 typedef struct {
     int fd;

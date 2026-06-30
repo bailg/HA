@@ -1,4 +1,5 @@
 #include "common/memory.h"
+
 void* safe_malloc(size_t size) {
     void *ptr = malloc(size);
     if (!ptr) {
@@ -6,10 +7,11 @@ void* safe_malloc(size_t size) {
     }
     return ptr;
 }
+
 char* safe_strdup(const char *s) {
-    char *dup = strdup(s);
-    if (!dup) {
-        LOG_FATAL("Out of memory");
-    }
+    if (!s) return NULL;
+    size_t len = strlen(s) + 1;
+    char *dup = safe_malloc(len);
+    memcpy(dup, s, len);
     return dup;
 }

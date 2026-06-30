@@ -34,12 +34,10 @@ typedef enum {
     MSG_TYPE_LOGIN_ACK,
     MSG_TYPE_HEARTBEAT_ACK,
     MSG_TYPE_WRITE_RESPONSE,
-    MSG_TYPE_ROLE_CHANGE_ACK,
     MSG_TYPE_CHECK_SYNC_STATUS,
     MSG_TYPE_SYNC_OK,
     MSG_TYPE_DEGRADE_COMMAND,
     MSG_TYPE_SYNC_REQUEST,
-    MSG_TYPE_SYNC_ENTRY_STREAM,
 } MessageType;
 
 typedef enum {
@@ -149,9 +147,28 @@ typedef struct {
 
 typedef struct {
     MessageHeader header;
-    uint8_t accepted;
+    char target_node_id[NODE_ID_MAX_LEN];
+    uint8_t demote_to;
     uint32_t epoch;
-} RoleChangeAckMessage;
+} DegradeCommandMessage;
+
+typedef struct {
+    MessageHeader header;
+    char node_id[NODE_ID_MAX_LEN];
+    uint8_t check_type;
+} CheckSyncStatusMessage;
+
+typedef struct {
+    MessageHeader header;
+    char node_id[NODE_ID_MAX_LEN];
+    uint8_t synced;
+    uint64_t last_committed_log_id;
+} SyncOkMessage;
+
+typedef struct {
+    MessageHeader header;
+    char node_id[NODE_ID_MAX_LEN];
+} SyncRequestMessage;
 #pragma pack(pop)
 
 typedef struct {
@@ -192,6 +209,14 @@ void protocol_hton_sync_entry(BusSyncEntryMessage *msg);
 void protocol_ntoh_sync_entry(BusSyncEntryMessage *msg);
 void protocol_hton_bus_ack(BusAckMessage *msg);
 void protocol_ntoh_bus_ack(BusAckMessage *msg);
+void protocol_hton_login_ack(LoginAckMessage *msg);
+void protocol_ntoh_login_ack(LoginAckMessage *msg);
+void protocol_hton_degrade_cmd(DegradeCommandMessage *msg);
+void protocol_ntoh_degrade_cmd(DegradeCommandMessage *msg);
+void protocol_hton_sync_request(SyncRequestMessage *msg);
+void protocol_ntoh_sync_request(SyncRequestMessage *msg);
+void protocol_hton_sync_ok(SyncOkMessage *msg);
+void protocol_ntoh_sync_ok(SyncOkMessage *msg);
 
 /* Pure C11 64-bit byte swap fallbacks */
 uint64_t c11_htobe64(uint64_t val);

@@ -167,3 +167,18 @@ bool bus_register_device(const DeviceRegisterMessage *msg, DeviceRoleAssignMessa
     else { reply->role = ROLE_SECONDARY; }
     return true;
 }
+
+void bus_apply_degrade(uint32_t new_epoch) {
+    LOG_INFO("Applying DEGRADE_COMMAND, new epoch: %u", new_epoch);
+    self_node.epoch = new_epoch;
+    /* 主节点降级为备节点，停止接受写请求 */
+    if (self_node.state == NODE_STATE_PRIMARY) {
+        self_node.is_switching = true;
+        transition_to(&self_node, NODE_STATE_SECONDARY);
+        self_node.is_switching = false;
+    }
+}
+
+uint64_t bus_get_last_committed_log_id(void) {
+    return self_node.last_committed_log_id;
+}

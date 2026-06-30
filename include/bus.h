@@ -23,3 +23,16 @@ bool process_device_packet(const DeviceDataPacketMessage *msg, WriteResponseMess
 void bus_apply_sync_entry(uint64_t log_id, const uint8_t *payload, uint32_t payload_size);
 // 【方向B】收到 Arbiter 指令后执行状态机切换
 void bus_apply_failover(uint32_t new_epoch);
+void bus_apply_degrade(uint32_t new_epoch);
+
+/* bus_sync.c - 主备同步协议函数 */
+bool bus_sync_entry_to_secondary(int peer_fd, uint64_t log_id,
+                                 const uint8_t *payload, uint32_t payload_size);
+bool bus_receive_sync_entry(int peer_fd, uint64_t *out_log_id,
+                            uint8_t *out_payload, uint32_t *out_payload_size);
+void bus_send_sync_ack(int peer_fd, uint64_t log_id, uint8_t status);
+void bus_request_full_sync(int peer_fd, const char *node_id);
+void bus_respond_sync_status(int peer_fd, const char *node_id,
+                             bool synced, uint64_t log_id);
+
+uint64_t bus_get_last_committed_log_id(void);

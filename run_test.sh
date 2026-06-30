@@ -142,6 +142,14 @@ assert_test "[方向C] 备设备接收指令成功升级为主设备 (role 0)" $
 echo "  [注入故障] 尝试启动携带旧 Epoch 的老主节点..."
 PID_OLD_PRI=$(start_process "old_primary" "bus_primary" "bus.conf")
 assert_test "Arbiter 成功拒绝旧主节点复活" $(wait_for_log "$LOG_DIR/arbiter.log" "Reject login from older epoch node bus_primary" 5 && echo 0 || echo 1)
+
+# 6. 验证 DEGRADE_COMMAND 降级标记（Arbiter 在 failover 时记录旧主信息）
+assert_test "[方向D] Arbiter 记录旧主节点信息用于 DEGRADE" $(wait_for_log "$LOG_DIR/arbiter.log" "marked for DEGRADE_COMMAND" 3 && echo 0 || echo 1)
+
+# 7. 验证 Arbiter 向重连的旧主发送了 DEGRADE 指令（方向D完整链路）
+echo "  [等待] 等待 old_primary 重连并接收 DEGRADE (3秒)..."
+sleep 3
+assert_test "[方向D] 旧主总线在重连时接收 DEGRADE_COMMAND 并降级" $( ( wait_for_log "$LOG_DIR/old_primary.log" "Received DEGRADE_COMMAND" 3 || wait_for_log "$LOG_DIR/arbiter.log" "Sent DEGRADE_COMMAND" 3 ) && echo 0 || echo 1)
 stop_process "old_primary" "$PID_OLD_PRI"
 
 # ------------------------------------------

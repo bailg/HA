@@ -34,3 +34,11 @@
 #define LOG_WARN(fmt, ...)   LOG_PRINT(LOG_LEVEL_WARN, fmt, ##__VA_ARGS__)
 #define LOG_ERROR(fmt, ...)  LOG_PRINT(LOG_LEVEL_ERROR, fmt, ##__VA_ARGS__)
 #define LOG_FATAL(fmt, ...)  do { LOG_PRINT(LOG_LEVEL_FATAL, fmt, ##__VA_ARGS__); exit(1); } while(0)
+
+/* CHECK 宏 - 错误处理断言 */
+#define CHECK(cond, msg) do { \
+    if (!(cond)) { \
+        LOG_ERROR("Check failed: %s, %s", #cond, msg); \
+        return ERR_GENERIC; \
+    } \
+} while(0)

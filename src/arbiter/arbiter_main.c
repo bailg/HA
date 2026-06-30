@@ -69,13 +69,24 @@ static void on_bus_connection(int fd, short revents, void *arg) {
                 ack.header.type = MSG_TYPE_LOGIN_ACK;
                 ack.header.length = sizeof(ack);
                 ack.header.timestamp = current_time_ms();
-                arbiter_login_bus(&login_msg, &ack);
+                bool login_accepted = arbiter_login_bus(&login_msg, &ack);
                 protocol_hton_header(&ack.header);
                 send(client_fd, &ack, sizeof(ack), 0);
                 
-                fcntl(client_fd, F_SETFL, flags);
-                register_handler(client_fd, POLLIN, on_bus_data, NULL);
-                conn_count++;
+                if (login_accepted) {
+                    fcntl(client_fd, F_SETFL, flags);
+                    register_handler(client_fd, POLLIN, on_bus_data, NULL);
+                    conn_count++;
+                } else {
+                    /* 登录被拒绝：发送 DEGRADE_COMMAND 后再关闭连接 */
+                    const char *old_pri = arbiter_get_old_primary();
+                    if (old_pri && strcmp(old_pri, login_msg.node_id) == 0) {
+                        arbiter_send_degrade_to_old_primary(client_fd, ack.epoch, old_pri);
+                        arbiter_clear_old_primary();
+                    }
+                    conn_buf_destroy(conn->conn_buf);
+                    close(client_fd);
+                }
             } else {
                 conn_buf_destroy(conn->conn_buf);
                 close(client_fd);
@@ -168,6 +179,16 @@ static void timer_detect_failures(void *arg) {
                 LOG_ERROR("Failed to send FAILOVER_COMMAND to %s (sent %zd)", target_id, sent);
             } else {
                 arbiter_confirm_promotion(target_id, new_epoch);
+                
+                /* 【方向B+D】发送 DEGRADE_COMMAND 给旧主节点 */
+                const char *old_primary = arbiter_get_old_primary();
+                if (old_primary) {
+                    ArbiterConnection *old_conn = find_connection_by_node(old_primary);
+                    if (old_conn && old_conn->fd > 0) {
+                        arbiter_send_degrade_to_old_primary(old_conn->fd, new_epoch, old_primary);
+                    }
+                    arbiter_clear_old_primary();
+                }
             }
         }
     }

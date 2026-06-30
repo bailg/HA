@@ -5,9 +5,9 @@ TARGETS = bin/arbiter bin/bus_primary bin/bus_secondary bin/device
 
 INCLUDES = -Iinclude
 
-COMMON_SRC = src/common/protocol.c src/common/config.c src/common/network.c
+COMMON_SRC = src/common/protocol.c src/common/config.c src/common/network.c src/common/memory.c
 ARBITER_SRC = $(COMMON_SRC) src/arbiter/arbiter_main.c src/arbiter/arbiter_logic.c
-BUS_SRC = $(COMMON_SRC) src/bus/bus_main.c src/bus/bus_state_machine.c
+BUS_SRC = $(COMMON_SRC) src/bus/bus_main.c src/bus/bus_state_machine.c src/bus/bus_sync.c
 DEVICE_SRC = $(COMMON_SRC) src/device/device_main.c src/device/device_logic.c
 
 all: $(TARGETS)
@@ -28,7 +28,31 @@ bin/device: $(DEVICE_SRC)
 	@mkdir -p bin
 	$(CC) $(CFLAGS) $(INCLUDES) $^ -o $@ $(LDFLAGS)
 
-clean:
-	@rm -rf bin
+# 便捷运行目标
+run_arbiter: bin/arbiter
+	@echo "Starting arbiter..."
+	./bin/arbiter configs/arbiter.conf
 
-.PHONY: all clean
+run_bus_primary: bin/bus_primary
+	@echo "Starting bus primary..."
+	./bin/bus_primary configs/bus.conf
+
+run_bus_secondary: bin/bus_secondary
+	@echo "Starting bus secondary..."
+	./bin/bus_secondary configs/bus_secondary.conf
+
+run_device: bin/device
+	@echo "Starting device..."
+	./bin/device configs/device.conf
+
+run_device2: bin/device
+	@echo "Starting device 2..."
+	./bin/device configs/device2.conf
+
+test: all
+	@bash run_test.sh
+
+clean:
+	@rm -rf bin test_logs
+
+.PHONY: all clean test run_arbiter run_bus_primary run_bus_secondary run_device run_device2

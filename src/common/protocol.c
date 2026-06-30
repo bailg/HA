@@ -128,3 +128,41 @@ void protocol_ntoh_bus_ack(BusAckMessage *msg) {
     protocol_ntoh_header(&msg->header);
     msg->log_id = c11_be64toh(msg->log_id);
 }
+
+void protocol_hton_login_ack(LoginAckMessage *msg) {
+    protocol_hton_header(&msg->header);
+    msg->epoch = htonl(msg->epoch);
+}
+
+void protocol_ntoh_login_ack(LoginAckMessage *msg) {
+    protocol_ntoh_header(&msg->header);
+    msg->epoch = ntohl(msg->epoch);
+}
+
+void protocol_hton_degrade_cmd(DegradeCommandMessage *msg) {
+    protocol_hton_header(&msg->header);
+    msg->epoch = htonl(msg->epoch);
+}
+
+void protocol_ntoh_degrade_cmd(DegradeCommandMessage *msg) {
+    protocol_ntoh_header(&msg->header);
+    msg->epoch = ntohl(msg->epoch);
+}
+
+void protocol_hton_sync_request(SyncRequestMessage *msg) {
+    protocol_hton_header(&msg->header);
+}
+
+void protocol_ntoh_sync_request(SyncRequestMessage *msg) {
+    protocol_ntoh_header(&msg->header);
+}
+
+void protocol_hton_sync_ok(SyncOkMessage *msg) {
+    protocol_hton_header(&msg->header);
+    msg->last_committed_log_id = c11_htobe64(msg->last_committed_log_id);
+}
+
+void protocol_ntoh_sync_ok(SyncOkMessage *msg) {
+    protocol_ntoh_header(&msg->header);
+    msg->last_committed_log_id = c11_be64toh(msg->last_committed_log_id);
+}

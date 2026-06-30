@@ -1,5 +1,6 @@
 #include "common/network.h"
 #include "common/logging.h"
+#include "common/memory.h"
 #include <string.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -7,22 +8,6 @@
 #include <sys/time.h>
 #include <netinet/tcp.h>
 #include <errno.h>
-
-void* safe_malloc(size_t size) {
-    void *ptr = malloc(size);
-    if (!ptr) {
-        LOG_FATAL("Out of memory");
-    }
-    return ptr;
-}
-
-char* safe_strdup(const char *s) {
-    if (!s) return NULL;
-    size_t len = strlen(s) + 1;
-    char *dup = safe_malloc(len);
-    memcpy(dup, s, len);
-    return dup;
-}
 
 ConnectionBuffer* conn_buf_create(int fd, size_t buf_size) {
     ConnectionBuffer *cb = safe_malloc(sizeof(ConnectionBuffer));

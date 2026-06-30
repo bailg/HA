@@ -13,6 +13,10 @@ static uint32_t global_max_epoch = 0;
 static int arbiter_state = ARBITER_STATE_NORMAL;
 static int64_t heartbeat_timeout_ms = 5000;
 
+/* 跟踪旧主节点信息，用于发送 DEGRADE_COMMAND */
+static char old_primary_id[NODE_ID_MAX_LEN];
+static bool has_old_primary = false;
+
 void arbiter_init(const Config *cfg) {
     node_count = 0;
     global_max_epoch = 0;
@@ -51,7 +55,16 @@ bool arbiter_login_bus(const BusLoginMessage *msg, LoginAckMessage *reply) {
     if (msg->epoch < global_max_epoch) {
         LOG_WARN("Reject login from older epoch node %s (epoch %u < %u)", 
                  msg->node_id, msg->epoch, global_max_epoch);
+        /* 标记为需要降级的旧主节点 */
+        if (has_old_primary && strcmp(old_primary_id, msg->node_id) == 0) {
+            LOG_INFO("Old primary %s detected during login, will send DEGRADE", msg->node_id);
+        } else if (msg->state == NODE_STATE_PRIMARY || msg->role == ROLE_PRIMARY) {
+            /* 初次检测到旧 epoch 的主节点，记录它 */
+            strncpy(old_primary_id, msg->node_id, NODE_ID_MAX_LEN);
+            has_old_primary = true;
+        }
         reply->accepted = 0;
+        reply->epoch = global_max_epoch;
         return false;
     }
 
@@ -149,6 +162,12 @@ void arbiter_confirm_promotion(const char *target_id, uint32_t new_epoch) {
     ArbiterNodeInfo *sec = find_node(target_id);
     ArbiterNodeInfo *pri = find_node_by_state(NODE_STATE_PRIMARY);
     if (sec && pri) {
+        /* 保存旧主节点信息，用于后续发送 DEGRADE_COMMAND */
+        strncpy(old_primary_id, pri->node_id, NODE_ID_MAX_LEN);
+        has_old_primary = true;
+        LOG_INFO("Old primary %s marked for DEGRADE_COMMAND, new epoch=%u",
+                 old_primary_id, new_epoch);
+        
         sec->state = NODE_STATE_PRIMARY;
         sec->role = ROLE_PRIMARY;
         sec->epoch = new_epoch;
@@ -158,4 +177,53 @@ void arbiter_confirm_promotion(const char *target_id, uint32_t new_epoch) {
         pri->role = ROLE_SECONDARY;
         pri->epoch = new_epoch;
     }
+}
+
+/* 返回旧主节点 ID */
+const char* arbiter_get_old_primary(void) {
+    return has_old_primary ? old_primary_id : NULL;
+}
+
+/* 清除旧主跟踪 */
+void arbiter_clear_old_primary(void) {
+    has_old_primary = false;
+    memset(old_primary_id, 0, sizeof(old_primary_id));
+}
+
+/* 判断是否需要向旧主发送 DEGRADE_COMMAND */
+bool arbiter_should_send_degrade(const char **out_old_primary_id, uint32_t *out_new_epoch) {
+    if (!has_old_primary) return false;
+    ArbiterNodeInfo *old = find_node(old_primary_id);
+    /* 旧主仍然活跃且需要降级 */
+    if (old && old->state != NODE_STATE_SECONDARY) {
+        *out_old_primary_id = old_primary_id;
+        *out_new_epoch = global_max_epoch;
+        return true;
+    }
+    return false;
+}
+
+/* 向旧主节点发送 DEGRADE_COMMAND 消息 */
+void arbiter_send_degrade_to_old_primary(int fd, uint32_t from_epoch, const char *old_primary_id) {
+    DegradeCommandMessage dcmd;
+    memset(&dcmd, 0, sizeof(dcmd));
+    dcmd.header.type = MSG_TYPE_DEGRADE_COMMAND;
+    dcmd.header.length = sizeof(dcmd);
+    dcmd.header.timestamp = current_time_ms();
+    strncpy(dcmd.target_node_id, old_primary_id, NODE_ID_MAX_LEN);
+    dcmd.demote_to = ROLE_SECONDARY;
+    dcmd.epoch = from_epoch;
+    protocol_hton_degrade_cmd(&dcmd);
+    send(fd, &dcmd, sizeof(dcmd), MSG_NOSIGNAL);
+    LOG_INFO("Sent DEGRADE_COMMAND to %s, epoch=%u", old_primary_id, from_epoch);
+}
+
+/* 检查备节点同步状态（用于审计决策） */
+bool arbiter_is_secondary_synced(const char *node_id) {
+    ArbiterNodeInfo *node = find_node(node_id);
+    ArbiterNodeInfo *pri = find_node_by_state(NODE_STATE_PRIMARY);
+    if (node && pri) {
+        return node->last_committed_log_id >= pri->last_committed_log_id;
+    }
+    return false;
 }
