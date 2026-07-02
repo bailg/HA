@@ -9,6 +9,8 @@ typedef struct {
     uint64_t last_committed_log_id;
     uint64_t current_log_id;
     bool is_switching;
+    uint64_t last_heartbeat_ack_ms;
+    int heartbeat_ack_miss_count;
 } BusNode;
 
 void bus_init(const Config *cfg, BusState initial_state);
@@ -36,3 +38,5 @@ void bus_respond_sync_status(int peer_fd, const char *node_id,
                              bool synced, uint64_t log_id);
 
 uint64_t bus_get_last_committed_log_id(void);
+void bus_set_last_committed_log_id(uint64_t log_id);
+void bus_receive_heartbeat_ack(void);

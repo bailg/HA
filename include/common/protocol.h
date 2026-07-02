@@ -193,6 +193,8 @@ void protocol_hton_bus_login(BusLoginMessage *msg);
 void protocol_ntoh_bus_login(BusLoginMessage *msg);
 void protocol_hton_heartbeat(HeartbeatMessage *msg);
 void protocol_ntoh_heartbeat(HeartbeatMessage *msg);
+void protocol_hton_heartbeat_ack(HeartbeatAckMessage *msg);
+void protocol_ntoh_heartbeat_ack(HeartbeatAckMessage *msg);
 void protocol_hton_failover_cmd(FailoverCommandMessage *msg);
 void protocol_ntoh_failover_cmd(FailoverCommandMessage *msg);
 void protocol_hton_failover_ack(FailoverAckMessage *msg);

@@ -47,6 +47,16 @@ void protocol_ntoh_heartbeat(HeartbeatMessage *msg) {
     msg->epoch = ntohl(msg->epoch);
 }
 
+void protocol_hton_heartbeat_ack(HeartbeatAckMessage *msg) {
+    protocol_hton_header(&msg->header);
+    msg->timestamp = c11_htobe64(msg->timestamp);
+}
+
+void protocol_ntoh_heartbeat_ack(HeartbeatAckMessage *msg) {
+    protocol_ntoh_header(&msg->header);
+    msg->timestamp = c11_be64toh(msg->timestamp);
+}
+
 void protocol_hton_failover_cmd(FailoverCommandMessage *msg) {
     protocol_hton_header(&msg->header);
     msg->epoch = htonl(msg->epoch);

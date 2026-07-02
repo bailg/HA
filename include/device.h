@@ -19,3 +19,5 @@ bool device_send_register(int bus_fd, const DeviceRegisterMessage *msg, DeviceRo
 bool device_receive_role_change(int bus_fd, RoleChangeMessage *msg);
 bool device_send_data(int bus_fd, const DeviceDataPacketMessage *msg);
 bool device_receive_control(int bus_fd, uint8_t **out_msg, uint16_t *out_len);
+void device_receive_sync_status(uint8_t synced, uint64_t last_committed_log_id);
+bool device_query_sync_status(int bus_fd);

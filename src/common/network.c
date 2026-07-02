@@ -6,6 +6,7 @@
 #include <unistd.h>
 #include <sys/socket.h>
 #include <sys/time.h>
+#include <sys/epoll.h>
 #include <netinet/tcp.h>
 #include <errno.h>
 
@@ -53,6 +54,8 @@ int protocol_read_message(ProtocolReader *pr, uint8_t **out_msg, uint16_t *out_l
             pr->current_header.length > header_size + PAYLOAD_MAX_LEN + 64) {
             LOG_ERROR("Invalid message length: %u, type: %u", 
                       pr->current_header.length, pr->current_header.type);
+            memmove(buf->read_buf, buf->read_buf + header_size, buf->read_buf_offset - header_size);
+            buf->read_buf_offset -= header_size;
             return -1;
         }
         pr->read_state = READ_STATE_PAYLOAD;
@@ -83,6 +86,7 @@ int create_nonblocking_socket(void) {
         return -1;
     }
     int flag = 1;
+    setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &flag, sizeof(flag));
     setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &flag, sizeof(flag));
     int keepalive = 1;
     setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, &keepalive, sizeof(keepalive));
@@ -123,6 +127,8 @@ volatile sig_atomic_t running = 1;
 TimerEntry timers[MAX_TIMERS];
 int timer_count = 0;
 
+static int epoll_fd = -1;
+
 int unregister_timer(int timer_id) {
     if (timer_id < 0 || timer_id >= timer_count) return -1;
     // 将要删除的定时器与末尾交换，并减少数量
@@ -132,32 +138,57 @@ int unregister_timer(int timer_id) {
 }
 
 void event_loop(void) {
-    struct pollfd pfds[MAX_FDS];
-    while (running) {
-        for (int i = 0; i < handler_count; i++) {
-            pfds[i].fd = handlers[i].fd;
-            pfds[i].events = handlers[i].events;
-            pfds[i].revents = 0;
+    if (epoll_fd < 0) {
+        epoll_fd = epoll_create1(0);
+        if (epoll_fd < 0) {
+            LOG_ERROR("epoll_create1 failed: %s", strerror(errno));
+            return;
         }
-        int ret = poll(pfds, handler_count, 100);
-        if (ret < 0) {
+    }
+    struct epoll_event events[MAX_FDS];
+    while (running) {
+        int nfds = epoll_wait(epoll_fd, events, MAX_FDS, 100);
+        if (nfds < 0) {
             if (errno == EINTR) continue;
-            LOG_ERROR("poll error: %s", strerror(errno));
+            LOG_ERROR("epoll_wait error: %s", strerror(errno));
             break;
         }
-        for (int i = 0; i < handler_count; i++) {
-            if (pfds[i].revents != 0) {
-                handlers[i].cb(handlers[i].fd, pfds[i].revents, handlers[i].arg);
+        {
+            int saved_fds[MAX_FDS];
+            short saved_revents[MAX_FDS];
+            event_callback saved_cbs[MAX_FDS];
+            void *saved_args[MAX_FDS];
+            int saved_count = 0;
+            for (int i = 0; i < nfds && saved_count < MAX_FDS; i++) {
+                int fd = events[i].data.fd;
+                short revents = (short)(events[i].events & (POLLIN | POLLOUT | POLLERR | POLLHUP));
+                for (int j = 0; j < handler_count; j++) {
+                    if (handlers[j].fd == fd) {
+                        saved_fds[saved_count] = fd;
+                        saved_revents[saved_count] = revents;
+                        saved_cbs[saved_count] = handlers[j].cb;
+                        saved_args[saved_count] = handlers[j].arg;
+                        saved_count++;
+                        break;
+                    }
+                }
+            }
+            for (int i = 0; i < saved_count; i++) {
+                saved_cbs[i](saved_fds[i], saved_revents[i], saved_args[i]);
             }
         }
         int64_t now = current_time_ms();
         for (int i = 0; i < timer_count; i++) {
             if (now >= timers[i].next_trigger) {
                 timers[i].cb(timers[i].arg);
-                timers[i].next_trigger = now + timers[i].interval_ms;
+                while (timers[i].next_trigger <= now) {
+                    timers[i].next_trigger += timers[i].interval_ms;
+                }
             }
         }
     }
+    close(epoll_fd);
+    epoll_fd = -1;
 }
 
 int register_handler(int fd, short events, event_callback cb, void *arg) {
@@ -167,6 +198,25 @@ int register_handler(int fd, short events, event_callback cb, void *arg) {
     handlers[handler_count].cb = cb;
     handlers[handler_count].arg = arg;
     handler_count++;
+
+    if (epoll_fd < 0) {
+        epoll_fd = epoll_create1(0);
+        if (epoll_fd < 0) {
+            LOG_ERROR("epoll_create1 failed: %s", strerror(errno));
+            return -1;
+        }
+    }
+    struct epoll_event ev;
+    ev.events = events;
+    ev.data.fd = fd;
+    if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, fd, &ev) < 0) {
+        if (errno == EEXIST) {
+            epoll_ctl(epoll_fd, EPOLL_CTL_MOD, fd, &ev);
+        } else {
+            LOG_ERROR("epoll_ctl ADD failed for fd %d: %s", fd, strerror(errno));
+            return -1;
+        }
+    }
     return 0;
 }
 
@@ -175,8 +225,11 @@ void unregister_handler(int fd) {
         if (handlers[i].fd == fd) {
             handlers[i] = handlers[handler_count - 1];
             handler_count--;
-            return;
+            break;
         }
+    }
+    if (epoll_fd >= 0) {
+        epoll_ctl(epoll_fd, EPOLL_CTL_DEL, fd, NULL);
     }
 }
 

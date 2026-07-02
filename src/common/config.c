@@ -15,7 +15,7 @@ int config_load(Config *cfg, const char *filename) {
         while (*p == ' ' || *p == '\t') p++;
         if (*p == '#' || *p == '\n' || *p == '\0') continue;
         char *eq = strchr(p, '=');
-        if (!eq) continue;
+        if (!eq || eq == p) continue;
         *eq = '\0';
         char *key_end = eq - 1;
         while (key_end >= p && (*key_end == ' ' || *key_end == '\t')) key_end--;
@@ -46,4 +46,22 @@ const char* config_get(const Config *cfg, const char *key) {
 int config_get_int(const Config *cfg, const char *key, int default_val) {
     const char *val = config_get(cfg, key);
     return val ? atoi(val) : default_val;
+}
+
+int config_validate_required(const Config *cfg, const char *key) {
+    const char *v = config_get(cfg, key);
+    if (!v) {
+        LOG_FATAL("Missing required config key: %s", key);
+        return -1;
+    }
+    return 0;
+}
+
+int config_validate_int_range(const Config *cfg, const char *key, int min, int max, int default_val) {
+    int v = config_get_int(cfg, key, default_val);
+    if (v < min || v > max) {
+        LOG_FATAL("Config %s=%d out of range [%d, %d]", key, v, min, max);
+        return -1;
+    }
+    return v;
 }

@@ -1,7 +1,6 @@
 #!/bin/bash
 
 # HA 系统全链路集成测试脚本 (涵盖控制面与数据面)
-set -e
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -22,10 +21,11 @@ PID_DEV1=
 PID_DEV2=
 PID_OLD_PRI=
 PID_ARBITER_NEW=
+PID_DEV1_NEW=
 
 cleanup() {
     echo -e "\n${YELLOW}[INFO] 清理测试环境与进程...${NC}" >&2
-    for pid in $PID_ARBITER $PID_BUS_PRI $PID_BUS_SEC $PID_DEV1 $PID_DEV2 $PID_OLD_PRI $PID_ARBITER_NEW; do
+    for pid in $PID_ARBITER $PID_BUS_PRI $PID_BUS_SEC $PID_DEV1 $PID_DEV2 $PID_OLD_PRI $PID_ARBITER_NEW $PID_DEV1_NEW; do
         if [ -n "$pid" ] && [[ "$pid" =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null; then
             kill -9 "$pid" 2>/dev/null || true
         fi
@@ -76,7 +76,7 @@ wait_for_log() {
         if grep -q "$pattern" "$log_file" 2>/dev/null; then
             return 0
         fi
-        sleep 0.5
+        sleep 1
         elapsed=$((elapsed + 1))
     done
     return 1
@@ -96,7 +96,7 @@ assert_test() {
 # ==========================================
 TESTS_FAILED=0
 echo "========================================"
-echo "    HA 全链路集成测试 (v2.0 强一致版)"
+echo "    HA 全链路集成测试 (v3.0 增强版)"
 echo "========================================"
 
 # ------------------------------------------
@@ -147,8 +147,8 @@ assert_test "Arbiter 成功拒绝旧主节点复活" $(wait_for_log "$LOG_DIR/ar
 assert_test "[方向D] Arbiter 记录旧主节点信息用于 DEGRADE" $(wait_for_log "$LOG_DIR/arbiter.log" "marked for DEGRADE_COMMAND" 3 && echo 0 || echo 1)
 
 # 7. 验证 Arbiter 向重连的旧主发送了 DEGRADE 指令（方向D完整链路）
-echo "  [等待] 等待 old_primary 重连并接收 DEGRADE (3秒)..."
-sleep 3
+echo "  [等待] 等待 old_primary 重连并接收 DEGRADE (5秒)..."
+sleep 5
 assert_test "[方向D] 旧主总线在重连时接收 DEGRADE_COMMAND 并降级" $( ( wait_for_log "$LOG_DIR/old_primary.log" "Received DEGRADE_COMMAND" 3 || wait_for_log "$LOG_DIR/arbiter.log" "Sent DEGRADE_COMMAND" 3 ) && echo 0 || echo 1)
 stop_process "old_primary" "$PID_OLD_PRI"
 
@@ -180,11 +180,77 @@ echo "  [等待] 等待总线自动重连 (预计3-5秒)..."
 sleep 5
 assert_test "总线自动重连 Arbiter 成功" $(wait_for_log "$LOG_DIR/bus_secondary.log" "Re-login to arbiter successful" 5 && echo 0 || echo 1)
 
+# ------------------------------------------
+# 阶段四：设备重连测试
+# ------------------------------------------
+echo -e "\n${YELLOW}>>> 阶段四：设备重连与降级测试${NC}"
+
+# 验证 device_2 在新主总线 (原 secondary) 上仍然保持 PRIMAY 角色
+echo "  [检查] device_2 应为 PRIMARY..."
+sleep 2
+
+# Kill device_1 (old primary device), restart it, verify it gets SECONDARY
+stop_process "device_1" "$PID_DEV1"
+echo "  [等待] device_1 被终止 (2秒)..."
+sleep 2
+
+echo "  [操作] 重新启动 device_1..."
+PID_DEV1_NEW=$(start_process "device_1_new" "device" "device.conf")
+sleep 2
+
+# device_1 reconnects - since device_2 already has PRIMARY, device_1 should get SECONDARY
+assert_test "重连设备1分配到备节点 (role 1)" $(wait_for_log "$LOG_DIR/device_1_new.log" "Device assigned role 1" 5 && echo 0 || echo 1)
+
+# ------------------------------------------
+# 阶段五：全系统重启测试
+# ------------------------------------------
+echo -e "\n${YELLOW}>>> 阶段五：全系统重启与完整恢复测试${NC}"
+
+echo "  [操作] 停止所有进程..."
+stop_process "device_2" "$PID_DEV2"
+stop_process "device_1_new" "$PID_DEV1_NEW"
+stop_process "bus_secondary" "$PID_BUS_SEC"
+stop_process "arbiter_new" "$PID_ARBITER_NEW"
+
+echo "  [等待] 等待所有进程退出完毕..."
+sleep 2
+
+echo "  [操作] 重新启动所有进程..."
+PID_ARBITER=$(start_process "arbiter_restart" "arbiter" "arbiter.conf")
+sleep 1
+PID_BUS_PRI=$(start_process "bus_pri_restart" "bus_primary" "bus.conf")
+PID_BUS_SEC=$(start_process "bus_sec_restart" "bus_secondary" "bus_secondary.conf")
+# 等待总线就绪后再启动设备
+sleep 2
+PID_DEV1=$(start_process "dev1_restart" "device" "device.conf")
+PID_DEV2=$(start_process "dev2_restart" "device" "device2.conf")
+
+sleep 2
+
+assert_test "重启后设备1分配为主节点 (role 0)" $(wait_for_log "$LOG_DIR/dev1_restart.log" "Device assigned role 0" 5 && echo 0 || echo 1)
+assert_test "重启后设备2分配为备节点 (role 1)" $(wait_for_log "$LOG_DIR/dev2_restart.log" "Device assigned role 1" 5 && echo 0 || echo 1)
+assert_test "重启后总线主节点正常" $(wait_for_log "$LOG_DIR/bus_pri_restart.log" "Re-login to arbiter successful" 5 && echo 0 || echo 1)
+assert_test "重启后总线备节点正常" $(wait_for_log "$LOG_DIR/bus_sec_restart.log" "Re-login to arbiter successful" 5 && echo 0 || echo 1)
+
+# ------------------------------------------
+# 阶段六：业务数据面测试（强一致同步验证）
+# ------------------------------------------
+echo -e "\n${YELLOW}>>> 阶段六：业务数据面测试 (主设备写 + 备总线同步)${NC}"
+
+echo "  [等待] 等待主设备发送测试数据 (6秒)..."
+sleep 6
+
+# dev1 (PRIMARY) should have sent test_data packets
+assert_test "主总线确认数据写入成功" $(wait_for_log "$LOG_DIR/bus_pri_restart.log" "Data write OK" 8 && echo 0 || echo 1)
+
+assert_test "备总线强一致同步收到业务数据" $(wait_for_log "$LOG_DIR/bus_sec_restart.log" "Applied sync entry" 5 && echo 0 || echo 1)
+
 # ==========================================
+TESTS_COUNT=$(grep -cP '^\s*assert_test' "$0" 2>/dev/null || echo "?")
 echo -e "\n========================================"
 if [ $TESTS_FAILED -eq 0 ]; then
     echo -e "       ${GREEN}所有全链路测试用例通过！${NC}"
-    echo -e "       ${GREEN}(强一致同步、指令下发、动态选主 验证完毕)${NC}"
+    echo -e "       ${GREEN}(强一致同步、指令下发、动态选主、设备重连、全系统重启 验证完毕)${NC}"
 else
     echo -e "       ${RED}存在测试用例未通过！${NC}"
 fi

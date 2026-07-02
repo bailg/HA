@@ -1,6 +1,8 @@
 #include "device.h"
 #include "common/network.h"
 #include <string.h>
+#include <poll.h>
+#include <errno.h>
 
 DeviceContext dev_ctx;
 
@@ -53,6 +55,25 @@ bool device_receive_role_change(int bus_fd, RoleChangeMessage *msg) {
     return false;
 }
 
+void device_receive_sync_status(uint8_t synced, uint64_t last_committed_log_id) {
+    dev_ctx.last_accepted_epoch = (uint32_t)(last_committed_log_id & 0xFFFFFFFF);
+    LOG_INFO("Sync status: synced=%d, log_id=%lu", synced, last_committed_log_id);
+}
+
+bool device_query_sync_status(int bus_fd) {
+    if (bus_fd < 0) return false;
+    CheckSyncStatusMessage req;
+    memset(&req, 0, sizeof(req));
+    req.header.type = MSG_TYPE_CHECK_SYNC_STATUS;
+    req.header.length = sizeof(req);
+    req.header.timestamp = current_time_ms();
+    strncpy(req.node_id, dev_ctx.device_id, NODE_ID_MAX_LEN);
+    req.check_type = 0;
+    protocol_hton_header(&req.header);
+    send(bus_fd, &req, sizeof(req), 0);
+    return true;
+}
+
 bool device_send_data(int bus_fd, const DeviceDataPacketMessage *msg) {
     if (dev_ctx.current_role != ROLE_PRIMARY) {
         LOG_WARN("Device is not primary, cannot send data.");
@@ -65,11 +86,24 @@ bool device_send_data(int bus_fd, const DeviceDataPacketMessage *msg) {
     send(bus_fd, &req, sizeof(req), 0);
 
     WriteResponseMessage resp;
-    ssize_t n = recv(bus_fd, &resp, sizeof(resp), MSG_WAITALL);
-    if (n == sizeof(resp)) {
-        protocol_ntoh_header(&resp.header);
-        resp.message_id = c11_be64toh(resp.message_id);
-        return resp.success == 1;
+    /* 使用 poll 轮询等待，避免非阻塞 socket 上 MSG_WAITALL 返回 EAGAIN */
+    for (int i = 0; i < 50; i++) {
+        struct pollfd pfd;
+        pfd.fd = bus_fd;
+        pfd.events = POLLIN;
+        int pret = poll(&pfd, 1, 100);
+        if (pret > 0 && (pfd.revents & POLLIN)) {
+            ssize_t n = recv(bus_fd, &resp, sizeof(resp), MSG_DONTWAIT);
+            if (n == sizeof(resp)) {
+                protocol_ntoh_header(&resp.header);
+                resp.message_id = c11_be64toh(resp.message_id);
+                return resp.success == 1;
+            }
+            if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) continue;
+            break;
+        }
+        if (pret == 0) continue;
+        break;
     }
     return false;
 }

@@ -78,34 +78,37 @@ bool arbiter_login_bus(const BusLoginMessage *msg, LoginAckMessage *reply) {
         node = &nodes[node_count++];
     }
 
-    if (msg->state == NODE_STATE_PRIMARY) {
+    bool is_primary = (msg->state == NODE_STATE_PRIMARY);
+    bool demote_incoming = false;
+
+    if (is_primary) {
         ArbiterNodeInfo *cur_pri = find_node_by_state(NODE_STATE_PRIMARY);
         if (cur_pri && strcmp(cur_pri->node_id, msg->node_id) != 0) {
-            if (msg->epoch == cur_pri->epoch) {
+            if (msg->epoch > cur_pri->epoch) {
+                /* 新节点 epoch 更高，降级旧主 */
+                cur_pri->state = NODE_STATE_SECONDARY;
+                cur_pri->role = ROLE_SECONDARY;
+            } else if (msg->epoch == cur_pri->epoch) {
+                /* 相同 epoch：比较日志进度决定谁降级 */
                 if (msg->last_committed_log_id > cur_pri->last_committed_log_id) {
                     cur_pri->state = NODE_STATE_SECONDARY;
                     cur_pri->role = ROLE_SECONDARY;
                 } else {
-                    LOG_WARN("Conflict primary role, demoting incoming node %s", msg->node_id);
-                    strncpy(node->node_id, msg->node_id, NODE_ID_MAX_LEN);
-                    node->state = NODE_STATE_SECONDARY;
-                    node->role = ROLE_SECONDARY;
-                    node->epoch = msg->epoch;
-                    node->last_heartbeat = current_time_ms();
-                    node->last_committed_log_id = msg->last_committed_log_id;
-                    
-                    reply->accepted = 1;
-                    reply->assigned_role = ROLE_SECONDARY;
-                    reply->epoch = global_max_epoch;
-                    return true;
+                    LOG_WARN("Conflict primary (same epoch), demoting incoming node %s", msg->node_id);
+                    demote_incoming = true;
                 }
+            } else {
+                /* 新节点 epoch 更低，直接降级它 */
+                LOG_WARN("Demoting incoming primary %s (epoch %u < %u)", msg->node_id, msg->epoch, cur_pri->epoch);
+                demote_incoming = true;
             }
         }
     }
 
+    /* 统一写入节点信息（已通过 find_node 或者在 line 78 分配） */
     strncpy(node->node_id, msg->node_id, NODE_ID_MAX_LEN);
-    node->state = msg->state;
-    node->role = msg->role;
+    node->state = demote_incoming ? NODE_STATE_SECONDARY : msg->state;
+    node->role = demote_incoming ? ROLE_SECONDARY : msg->role;
     node->epoch = msg->epoch;
     node->last_heartbeat = current_time_ms();
     node->last_committed_log_id = msg->last_committed_log_id;
@@ -115,7 +118,7 @@ bool arbiter_login_bus(const BusLoginMessage *msg, LoginAckMessage *reply) {
     }
 
     reply->accepted = 1;
-    reply->assigned_role = msg->role;
+    reply->assigned_role = demote_incoming ? ROLE_SECONDARY : msg->role;
     reply->epoch = global_max_epoch;
     return true;
 }
@@ -176,6 +179,7 @@ void arbiter_confirm_promotion(const char *target_id, uint32_t new_epoch) {
         pri->state = NODE_STATE_SECONDARY;
         pri->role = ROLE_SECONDARY;
         pri->epoch = new_epoch;
+        pri->last_heartbeat = current_time_ms();
     }
 }
 

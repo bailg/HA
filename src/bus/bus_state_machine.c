@@ -3,6 +3,10 @@
 #include <string.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <poll.h>
+#include <errno.h>
+#define PEER_ACK_POLL_MS 200
+#define PEER_ACK_MAX_RETRY 5
 
 static BusNode self_node;
 static Config bus_cfg;
@@ -44,32 +48,41 @@ static void commit_log(uint64_t log_id) {
 }
 
 #define MAX_MSG_CACHE 1024
-static uint64_t processed_msg_ids[MAX_MSG_CACHE];
-static uint8_t processed_msg_statuses[MAX_MSG_CACHE];
-static int processed_count = 0;
+typedef struct {
+    char device_id[DEVICE_ID_MAX_LEN];
+    uint64_t message_id;
+    uint8_t status;
+    bool valid;
+} CachedResponse;
+
+static CachedResponse cached_responses[MAX_MSG_CACHE];
+static int cache_next = 0;
 
 static bool has_processed_message(const char *device_id, uint64_t message_id) {
-    (void)device_id;
-    for (int i = 0; i < processed_count; i++) {
-        if (processed_msg_ids[i] == message_id) return true;
+    for (int i = 0; i < MAX_MSG_CACHE; i++) {
+        if (cached_responses[i].valid &&
+            cached_responses[i].message_id == message_id &&
+            strcmp(cached_responses[i].device_id, device_id) == 0) return true;
     }
     return false;
 }
 
 static bool send_cached_response(const char *device_id, uint64_t message_id) {
-    (void)device_id;
-    for (int i = 0; i < processed_count; i++) {
-        if (processed_msg_ids[i] == message_id) return processed_msg_statuses[i] == 1;
+    for (int i = 0; i < MAX_MSG_CACHE; i++) {
+        if (cached_responses[i].valid &&
+            cached_responses[i].message_id == message_id &&
+            strcmp(cached_responses[i].device_id, device_id) == 0)
+            return cached_responses[i].status == 1;
     }
     return false;
 }
 
-static void cache_response(uint64_t message_id, bool success) {
-    if (processed_count < MAX_MSG_CACHE) {
-        processed_msg_ids[processed_count] = message_id;
-        processed_msg_statuses[processed_count] = success ? 1 : 0;
-        processed_count++;
-    }
+static void cache_response(const char *device_id, uint64_t message_id, bool success) {
+    cached_responses[cache_next].valid = true;
+    strncpy(cached_responses[cache_next].device_id, device_id, DEVICE_ID_MAX_LEN);
+    cached_responses[cache_next].message_id = message_id;
+    cached_responses[cache_next].status = success ? 1 : 0;
+    cache_next = (cache_next + 1) % MAX_MSG_CACHE;
 }
 
 bool process_device_packet(const DeviceDataPacketMessage *msg, WriteResponseMessage *resp, int peer_fd) {
@@ -110,9 +123,32 @@ bool process_device_packet(const DeviceDataPacketMessage *msg, WriteResponseMess
 
         ssize_t sent = send(peer_fd, &sync_msg, sizeof(sync_msg), 0);
         if (sent == sizeof(sync_msg)) {
+            /* 使用 poll 超时轮询替代 MSG_WAITALL 阻塞，防止备节点离线导致主总线数据面死锁 */
             BusAckMessage ack;
-            ssize_t n = recv(peer_fd, &ack, sizeof(ack), MSG_WAITALL);
-            if (n == sizeof(ack)) {
+            int retries = 0;
+            bool ack_received = false;
+            while (retries < PEER_ACK_MAX_RETRY && !ack_received) {
+                struct pollfd pfd;
+                pfd.fd = peer_fd;
+                pfd.events = POLLIN;
+                int pret = poll(&pfd, 1, PEER_ACK_POLL_MS);
+                if (pret > 0 && (pfd.revents & POLLIN)) {
+                    ssize_t n = recv(peer_fd, &ack, sizeof(ack), MSG_DONTWAIT);
+                    if (n == sizeof(ack)) {
+                        ack_received = true;
+                    } else if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+                        retries++;
+                        continue;
+                    } else {
+                        break; // 连接已断开
+                    }
+                } else if (pret == 0) {
+                    retries++;
+                } else {
+                    break; // poll 出错或 peer 断开
+                }
+            }
+            if (ack_received) {
                 protocol_ntoh_bus_ack(&ack);
                 if (ack.status == 1 && ack.log_id == log_id) {
                     sync_ok = true;
@@ -125,11 +161,15 @@ bool process_device_packet(const DeviceDataPacketMessage *msg, WriteResponseMess
     
     if (sync_ok) {
         commit_log(log_id);
-        cache_response(msg->message_id, true);
+        cache_response(msg->device_id, msg->message_id, true);
         resp->success = 1;
+        LOG_INFO("Data write OK: device=%s msg_id=%lu log_id=%lu",
+                 msg->device_id, msg->message_id, log_id);
     } else {
-        cache_response(msg->message_id, false);
+        cache_response(msg->device_id, msg->message_id, false);
         resp->success = 0;
+        LOG_WARN("Data write FAILED: device=%s msg_id=%lu",
+                 msg->device_id, msg->message_id);
     }
     
     protocol_hton_header(&resp->header);
@@ -141,6 +181,7 @@ bool process_device_packet(const DeviceDataPacketMessage *msg, WriteResponseMess
 void bus_apply_sync_entry(uint64_t log_id, const uint8_t *payload, uint32_t payload_size) {
     (void)payload; (void)payload_size;
     self_node.last_committed_log_id = log_id;
+    LOG_INFO("Applied sync entry log_id=%lu, size=%u", log_id, payload_size);
 }
 
 // 【方向B】收到 Arbiter 指令后的状态机翻转
@@ -181,4 +222,16 @@ void bus_apply_degrade(uint32_t new_epoch) {
 
 uint64_t bus_get_last_committed_log_id(void) {
     return self_node.last_committed_log_id;
+}
+
+void bus_set_last_committed_log_id(uint64_t log_id) {
+    self_node.last_committed_log_id = log_id;
+    if (log_id > self_node.current_log_id) {
+        self_node.current_log_id = log_id;
+    }
+}
+
+void bus_receive_heartbeat_ack(void) {
+    self_node.last_heartbeat_ack_ms = current_time_ms();
+    self_node.heartbeat_ack_miss_count = 0;
 }

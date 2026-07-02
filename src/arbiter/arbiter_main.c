@@ -59,8 +59,14 @@ static void on_bus_connection(int fd, short revents, void *arg) {
             fcntl(client_fd, F_SETFL, flags & ~O_NONBLOCK);
 
             BusLoginMessage login_msg;
-            ssize_t n = recv(client_fd, &login_msg, sizeof(login_msg), MSG_WAITALL);
-            if (n == sizeof(login_msg)) {
+            ssize_t total = 0;
+            uint8_t *login_buf = (uint8_t *)&login_msg;
+            while (total < (ssize_t)sizeof(login_msg)) {
+                ssize_t n = recv(client_fd, login_buf + total, sizeof(login_msg) - total, 0);
+                if (n <= 0) break;
+                total += n;
+            }
+            if (total == sizeof(login_msg)) {
                 protocol_ntoh_bus_login(&login_msg);
                 strncpy(conn->node_id, login_msg.node_id, NODE_ID_MAX_LEN); 
                 
@@ -111,7 +117,10 @@ static void on_bus_data(int fd, short revents, void *arg) {
         }
 
         size_t space = conn->conn_buf->read_buf_size - conn->conn_buf->read_buf_offset;
-        if ((size_t)n > space) n = space;
+        if ((size_t)n > space) {
+            LOG_WARN("Bus %s buffer full, dropping %zu bytes", conn->node_id, (size_t)n - space);
+            n = space;
+        }
         memcpy(conn->conn_buf->read_buf + conn->conn_buf->read_buf_offset, temp_buf, n);
         conn->conn_buf->read_buf_offset += n;
 
@@ -124,6 +133,17 @@ static void on_bus_data(int fd, short revents, void *arg) {
                 HeartbeatMessage *hb = (HeartbeatMessage *)msg;
                 protocol_ntoh_heartbeat(hb);
                 arbiter_receive_heartbeat(hb);
+                HeartbeatAckMessage ack;
+                memset(&ack, 0, sizeof(ack));
+                ack.header.type = MSG_TYPE_HEARTBEAT_ACK;
+                ack.header.length = sizeof(ack);
+                ack.header.timestamp = current_time_ms();
+                ack.timestamp = current_time_ms();
+                protocol_hton_heartbeat_ack(&ack);
+                ssize_t sent = send(fd, &ack, sizeof(ack), 0);
+                if (sent < 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
+                    LOG_WARN("Failed to send HEARTBEAT_ACK to %s", conn->node_id);
+                }
             } else if (type == MSG_TYPE_FAILOVER_ACK) {
                 LOG_INFO("Received FAILOVER_ACK from %s", conn->node_id);
             } else {
@@ -198,8 +218,11 @@ int main(int argc, char *argv[]) {
     if (argc < 2) LOG_FATAL("Usage: %s <config_file>", argv[0]);
     Config cfg;
     config_load(&cfg, argv[1]);
+    config_validate_int_range(&cfg, "listen_port", 1024, 65535, 4000);
+    config_validate_int_range(&cfg, "heartbeat_timeout_ms", 100, 60000, 5000);
     arbiter_init(&cfg);
     setup_signals();
+    signal(SIGPIPE, SIG_IGN);
 
     int port = config_get_int(&cfg, "listen_port", 4000);
     struct sockaddr_in addr;
@@ -209,8 +232,13 @@ int main(int argc, char *argv[]) {
     addr.sin_port = htons(port);
 
     listen_fd = create_nonblocking_socket();
-    bind(listen_fd, (struct sockaddr*)&addr, sizeof(addr));
-    listen(listen_fd, 10);
+    if (listen_fd < 0) LOG_FATAL("Failed to create listen socket");
+    if (bind(listen_fd, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
+        LOG_FATAL("Failed to bind: %s", strerror(errno));
+    }
+    if (listen(listen_fd, 10) < 0) {
+        LOG_FATAL("Failed to listen: %s", strerror(errno));
+    }
 
     register_handler(listen_fd, POLLIN, on_bus_connection, NULL);
     register_timer(1000, timer_detect_failures, NULL);
