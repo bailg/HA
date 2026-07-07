@@ -18,7 +18,7 @@ BusState bus_get_state(void);
 uint32_t bus_get_epoch(void);
 void on_arbiter_disconnect(void);
 
-bool bus_register_device(const DeviceRegisterMessage *msg, DeviceRoleAssignMessage *reply);
+bool bus_register_device(const DeviceRegisterMessage *msg, DeviceRoleAssignMessage *reply, int current_device_count);
 bool process_device_packet(const DeviceDataPacketMessage *msg, WriteResponseMessage *resp, int peer_fd);
 
 // 【方向A】备节点接收主节点同步日志
@@ -40,3 +40,5 @@ void bus_respond_sync_status(int peer_fd, const char *node_id,
 uint64_t bus_get_last_committed_log_id(void);
 void bus_set_last_committed_log_id(uint64_t log_id);
 void bus_receive_heartbeat_ack(void);
+void bus_set_state(BusState state);
+void bus_set_epoch(uint32_t epoch);

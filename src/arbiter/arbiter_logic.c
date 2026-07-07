@@ -39,13 +39,6 @@ static ArbiterNodeInfo* find_node_by_state(BusState state) {
     return NULL;
 }
 
-static bool is_secondary_synced(void) {
-    ArbiterNodeInfo *pri = find_node_by_state(NODE_STATE_PRIMARY);
-    ArbiterNodeInfo *sec = find_node_by_state(NODE_STATE_SECONDARY);
-    if (!pri || !sec) return false;
-    return sec->last_committed_log_id >= pri->last_committed_log_id;
-}
-
 bool arbiter_login_bus(const BusLoginMessage *msg, LoginAckMessage *reply) {
     if (arbiter_state == ARBITER_STATE_AUDIT) {
         reply->accepted = 0;
@@ -53,19 +46,28 @@ bool arbiter_login_bus(const BusLoginMessage *msg, LoginAckMessage *reply) {
     }
 
     if (msg->epoch < global_max_epoch) {
-        LOG_WARN("Reject login from older epoch node %s (epoch %u < %u)", 
+        LOG_WARN("Login from older epoch node %s (epoch %u < %u), accepting as SECONDARY",
                  msg->node_id, msg->epoch, global_max_epoch);
-        /* 标记为需要降级的旧主节点 */
-        if (has_old_primary && strcmp(old_primary_id, msg->node_id) == 0) {
-            LOG_INFO("Old primary %s detected during login, will send DEGRADE", msg->node_id);
-        } else if (msg->state == NODE_STATE_PRIMARY || msg->role == ROLE_PRIMARY) {
-            /* 初次检测到旧 epoch 的主节点，记录它 */
-            strncpy(old_primary_id, msg->node_id, NODE_ID_MAX_LEN);
-            has_old_primary = true;
+        /* 旧 epoch 节点（如重启的旧主）仍然允许登录，降级为 SECONDARY */
+        ArbiterNodeInfo *node = find_node(msg->node_id);
+        if (!node) {
+            if (node_count >= MAX_BUS_NODES) {
+                reply->accepted = 0;
+                return false;
+            }
+            node = &nodes[node_count++];
         }
-        reply->accepted = 0;
+        strncpy(node->node_id, msg->node_id, NODE_ID_MAX_LEN);
+        node->state = NODE_STATE_SECONDARY;
+        node->role = ROLE_SECONDARY;
+        node->epoch = global_max_epoch;
+        node->last_heartbeat = current_time_ms();
+        node->last_committed_log_id = msg->last_committed_log_id;
+
+        reply->accepted = 1;
+        reply->assigned_role = ROLE_SECONDARY;
         reply->epoch = global_max_epoch;
-        return false;
+        return true;
     }
 
     ArbiterNodeInfo *node = find_node(msg->node_id);
@@ -144,17 +146,20 @@ bool arbiter_prepare_failover(const char **out_target_id, uint32_t *out_new_epoc
     int64_t now = current_time_ms();
     ArbiterNodeInfo *pri = find_node_by_state(NODE_STATE_PRIMARY);
     
-    if (pri && ((int64_t)(now - pri->last_heartbeat) > heartbeat_timeout_ms)) {
-        if (is_secondary_synced()) {
+    if (pri) {
+        int64_t elapsed = now - pri->last_heartbeat;
+        LOG_INFO("[FO] pri=%s last_hb=%ld now=%ld elapsed=%ld timeout=%ld",
+                 pri->node_id, (long)pri->last_heartbeat, (long)now, (long)elapsed, (long)heartbeat_timeout_ms);
+        if (elapsed > heartbeat_timeout_ms) {
             ArbiterNodeInfo *sec = find_node_by_state(NODE_STATE_SECONDARY);
             if (sec) {
                 global_max_epoch++;
                 *out_target_id = sec->node_id;
                 *out_new_epoch = global_max_epoch;
                 return true;
+            } else {
+                LOG_WARN("Primary %s failed, but no secondary available.", pri->node_id);
             }
-        } else {
-            LOG_WARN("Primary %s failed, but secondary not synced. Waiting.", pri->node_id);
         }
     }
     return false;

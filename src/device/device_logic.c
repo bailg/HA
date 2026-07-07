@@ -29,16 +29,10 @@ bool device_send_register(int bus_fd, const DeviceRegisterMessage *msg, DeviceRo
     ssize_t n = recv(bus_fd, reply, sizeof(DeviceRoleAssignMessage), MSG_WAITALL);
     if (n == sizeof(DeviceRoleAssignMessage)) {
         protocol_ntoh_device_role_assign(reply);
-        
-        if (reply->epoch >= dev_ctx.last_accepted_epoch) {
-            dev_ctx.last_accepted_epoch = reply->epoch;
-            dev_ctx.current_role = reply->role;
-            LOG_INFO("Device assigned role %d, epoch %d", reply->role, reply->epoch);
-            return true;
-        } else {
-            LOG_WARN("Rejected stale role assign epoch %d < %d", reply->epoch, dev_ctx.last_accepted_epoch);
-            return false;
-        }
+        dev_ctx.last_accepted_epoch = reply->epoch;
+        dev_ctx.current_role = reply->role;
+        LOG_INFO("Device assigned role %d, epoch %d", reply->role, reply->epoch);
+        return true;
     }
     return false;
 }
@@ -57,7 +51,7 @@ bool device_receive_role_change(int bus_fd, RoleChangeMessage *msg) {
 
 void device_receive_sync_status(uint8_t synced, uint64_t last_committed_log_id) {
     dev_ctx.last_accepted_epoch = (uint32_t)(last_committed_log_id & 0xFFFFFFFF);
-    LOG_INFO("Sync status: synced=%d, log_id=%lu", synced, last_committed_log_id);
+    LOG_DEBUG("Sync status: synced=%d, log_id=%lu", synced, last_committed_log_id);
 }
 
 bool device_query_sync_status(int bus_fd) {
@@ -75,10 +69,6 @@ bool device_query_sync_status(int bus_fd) {
 }
 
 bool device_send_data(int bus_fd, const DeviceDataPacketMessage *msg) {
-    if (dev_ctx.current_role != ROLE_PRIMARY) {
-        LOG_WARN("Device is not primary, cannot send data.");
-        return false;
-    }
     if (bus_fd < 0) return false;
 
     DeviceDataPacketMessage req = *msg;

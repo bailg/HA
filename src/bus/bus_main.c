@@ -2,6 +2,7 @@
 #include "common/network.h"
 #include "common/logging.h"
 #include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <arpa/inet.h>
 #include <unistd.h>
 #include <string.h>
@@ -25,9 +26,7 @@ static int reconnect_timer_id = -1;
 static int heartbeat_timer_id = -1;
 static ReconnectContext arbiter_reconnect;
 
-#ifndef IS_BUS_PRIMARY
 static int peer_poll_timer_id = -1;
-#endif
 
 static BusDeviceConn devices[MAX_FDS];
 static int device_count = 0;
@@ -35,10 +34,8 @@ static int device_count = 0;
 static ConnectionBuffer *arbiter_conn_buf = NULL;
 static ProtocolReader arbiter_reader;
 
-#ifndef IS_BUS_PRIMARY
 static ConnectionBuffer *peer_conn_buf = NULL;
 static ProtocolReader peer_reader;
-#endif
 
 static void send_heartbeat_to_arbiter(void *arg);
 static void try_reconnect_arbiter(void *arg);
@@ -47,32 +44,46 @@ static void on_arbiter_data(int fd, short revents, void *arg);
 static void on_new_connection(int fd, short revents, void *arg);
 static void on_device_data(int fd, short revents, void *arg);
 static void connect_to_peer(void);
-
-#ifndef IS_BUS_PRIMARY
 static void poll_peer_messages(void *arg);
-#endif
 
 static void stop_reconnect_timer() { if (reconnect_timer_id >= 0) { unregister_timer(reconnect_timer_id); reconnect_timer_id = -1; } }
 static void start_heartbeat_timer() { if (heartbeat_timer_id < 0) heartbeat_timer_id = register_timer(config_get_int(&local_bus_cfg, "heartbeat_interval_ms", 2000), send_heartbeat_to_arbiter, NULL); }
 static void stop_heartbeat_timer() { if (heartbeat_timer_id >= 0) { unregister_timer(heartbeat_timer_id); heartbeat_timer_id = -1; } }
 
+static void promote_next_device(NodeRole removed_role) {
+    if (removed_role != ROLE_PRIMARY || device_count == 0) return;
+    for (int i = 0; i < device_count; i++) {
+        if (devices[i].current_role == ROLE_SECONDARY) {
+            devices[i].current_role = ROLE_PRIMARY;
+            LOG_INFO("Promoted device %s to PRIMARY", devices[i].device_id);
+            RoleChangeMessage rc;
+            memset(&rc, 0, sizeof(rc));
+            rc.header.type = MSG_TYPE_ROLE_CHANGE;
+            rc.header.length = sizeof(rc);
+            rc.header.timestamp = current_time_ms();
+            strncpy(rc.device_id, devices[i].device_id, DEVICE_ID_MAX_LEN);
+            rc.role = ROLE_PRIMARY;
+            rc.epoch = bus_get_epoch();
+            protocol_hton_role_change(&rc);
+            send(devices[i].fd, &rc, sizeof(rc), 0);
+            break;
+        }
+    }
+}
+
 static void close_peer_connection(void) {
-#ifndef IS_BUS_PRIMARY
     if (peer_conn_buf) {
         conn_buf_destroy(peer_conn_buf);
         peer_conn_buf = NULL;
     }
-#endif
     if (peer_fd >= 0) {
         close(peer_fd);
         peer_fd = -1;
     }
-#ifndef IS_BUS_PRIMARY
     if (peer_poll_timer_id >= 0) {
         unregister_timer(peer_poll_timer_id);
         peer_poll_timer_id = -1;
     }
-#endif
 }
 
 static void handle_arbiter_disconnect() {
@@ -119,6 +130,11 @@ void try_reconnect_arbiter(void *arg) {
     } else {
         close(arbiter_fd);
         arbiter_fd = -1;
+        if (reconnect_timer_id < 0) {
+            int backoff = get_next_backoff_ms(&arbiter_reconnect);
+            reconnect_timer_id = register_timer(backoff, try_reconnect_arbiter, NULL);
+            LOG_INFO("Arbiter not ready, retry in %d ms (retry=%d)", backoff, arbiter_reconnect.retry_count);
+        }
     }
 }
 
@@ -154,8 +170,15 @@ static void on_arbiter_connected(int fd, short revents, void *arg) {
         LoginAckMessage ack;
         ssize_t n = recv(fd, &ack, sizeof(ack), MSG_WAITALL);
         if (n == sizeof(ack)) {
-            protocol_ntoh_header(&ack.header);
+            protocol_ntoh_login_ack(&ack);
             if (ack.accepted) {
+                if (ack.epoch > bus_get_epoch()) {
+                    bus_set_epoch(ack.epoch);
+                }
+                if (ack.assigned_role == ROLE_SECONDARY && bus_get_state() == NODE_STATE_PRIMARY) {
+                    bus_set_state(NODE_STATE_SECONDARY);
+                    LOG_INFO("Arbiter assigned role SECONDARY (former primary restarted)");
+                }
                 LOG_INFO("Re-login to arbiter successful.");
                 fcntl(fd, F_SETFL, flags);
                 
@@ -241,8 +264,15 @@ static void on_arbiter_data(int fd, short revents, void *arg) {
                 send(fd, &ack, sizeof(ack), 0);
                 
                 bus_apply_failover(cmd->epoch);
-                
+
+                /* 新主关闭与旧主的对端连接；旧主被降级后也关闭连接 */
+                /* 注意：必须先停心跳、再关对端（可能打乱 timer 数组），最后重新起心跳 */
+                stop_heartbeat_timer();
+                close_peer_connection();
+
+                /* 如果本节点成为主节点，确保只有一个主设备 */
                 if (bus_get_state() == NODE_STATE_PRIMARY) {
+                    /* 先降级所有设备 */
                     for (int i = 0; i < device_count; i++) {
                         if (devices[i].current_role == ROLE_PRIMARY) {
                             devices[i].current_role = ROLE_SECONDARY;
@@ -253,30 +283,34 @@ static void on_arbiter_data(int fd, short revents, void *arg) {
                             rc.header.timestamp = current_time_ms();
                             strncpy(rc.device_id, devices[i].device_id, DEVICE_ID_MAX_LEN);
                             rc.role = ROLE_SECONDARY;
-                            rc.epoch = cmd->epoch;
+                            rc.epoch = bus_get_epoch();
                             protocol_hton_role_change(&rc);
                             send(devices[i].fd, &rc, sizeof(rc), 0);
-                            LOG_INFO("Demoted device %s to SECONDARY", devices[i].device_id);
+                            LOG_INFO("Demoted device %s to SECONDARY after failover",
+                                     devices[i].device_id);
                         }
                     }
+                    /* 提升第一个已注册设备为主设备 */
                     if (device_count > 0) {
-                        int promote_idx = device_count - 1;
-                        devices[promote_idx].current_role = ROLE_PRIMARY;
+                        devices[0].current_role = ROLE_PRIMARY;
                         RoleChangeMessage rc;
                         memset(&rc, 0, sizeof(rc));
                         rc.header.type = MSG_TYPE_ROLE_CHANGE;
                         rc.header.length = sizeof(rc);
                         rc.header.timestamp = current_time_ms();
-                        strncpy(rc.device_id, devices[promote_idx].device_id, DEVICE_ID_MAX_LEN);
+                        strncpy(rc.device_id, devices[0].device_id, DEVICE_ID_MAX_LEN);
                         rc.role = ROLE_PRIMARY;
-                        rc.epoch = cmd->epoch;
+                        rc.epoch = bus_get_epoch();
                         protocol_hton_role_change(&rc);
-                        send(devices[promote_idx].fd, &rc, sizeof(rc), 0);
-                        LOG_INFO("Promoted device %s to PRIMARY", devices[promote_idx].device_id);
+                        send(devices[0].fd, &rc, sizeof(rc), 0);
+                        LOG_INFO("Promoted device %s to PRIMARY after failover",
+                                 devices[0].device_id);
                     }
-                } else if (bus_get_state() == NODE_STATE_SECONDARY) {
-                    close_peer_connection();
                 }
+
+                /* 确保心跳定时器在状态切换后继续运行 */
+                start_heartbeat_timer();
+                bus_receive_heartbeat_ack();
             } else if (type == MSG_TYPE_DEGRADE_COMMAND) {
                 DegradeCommandMessage *dcmd = (DegradeCommandMessage *)msg;
                 protocol_ntoh_degrade_cmd(dcmd);
@@ -296,21 +330,26 @@ static void on_arbiter_data(int fd, short revents, void *arg) {
 
 static void connect_to_peer(void) {
     if (peer_fd >= 0) return;
-    
-    #ifndef IS_BUS_PRIMARY
-    const char *pri_host = config_get(&local_bus_cfg, "bus_primary_host");
-    if (!pri_host) pri_host = "127.0.0.1";
-    int pri_port = config_get_int(&local_bus_cfg, "bus_primary_port", 5000);
+    /* 运行时非 SECONDARY 不需要连接对端 */
+    if (bus_get_state() != NODE_STATE_SECONDARY) return;
+
+    const char *peer_host = config_get(&local_bus_cfg, "peer_host");
+    if (!peer_host) peer_host = config_get(&local_bus_cfg, "bus_primary_host");
+    if (!peer_host) peer_host = "127.0.0.1";
+    int peer_port = config_get_int(&local_bus_cfg, "peer_port", 0);
+    if (peer_port == 0) peer_port = config_get_int(&local_bus_cfg, "bus_primary_port", 5000);
 
     struct sockaddr_in addr;
     memset(&addr, 0, sizeof(addr));
     addr.sin_family = AF_INET;
-    addr.sin_port = htons(pri_port);
-    inet_pton(AF_INET, pri_host, &addr.sin_addr);
+    addr.sin_port = htons(peer_port);
+    inet_pton(AF_INET, peer_host, &addr.sin_addr);
 
     peer_fd = create_nonblocking_socket();
     int flags = fcntl(peer_fd, F_GETFL, 0);
-    fcntl(peer_fd, F_SETFL, flags & ~O_NONBLOCK); 
+    fcntl(peer_fd, F_SETFL, flags & ~O_NONBLOCK);
+    int optval = 1;
+    setsockopt(peer_fd, IPPROTO_TCP, TCP_NODELAY, &optval, sizeof(optval));
 
     if (connect(peer_fd, (struct sockaddr*)&addr, sizeof(addr)) == 0) {
         BusLoginMessage login;
@@ -349,10 +388,8 @@ static void connect_to_peer(void) {
         LOG_ERROR("Failed to connect to primary bus.");
         close_peer_connection();
     }
-    #endif
 }
 
-#ifndef IS_BUS_PRIMARY
 static void poll_peer_messages(void *arg) {
     (void)arg;
     if (peer_fd < 0 || !peer_conn_buf) return;
@@ -397,8 +434,8 @@ static void poll_peer_messages(void *arg) {
             } else if (type == MSG_TYPE_SYNC_OK) {
                 SyncOkMessage *sok = (SyncOkMessage *)msg;
                 protocol_ntoh_sync_ok(sok);
-                LOG_INFO("Received SYNC_OK from primary, synced=%d, log_id=%lu",
-                         sok->synced, sok->last_committed_log_id);
+                LOG_DEBUG("Received SYNC_OK from primary, synced=%d, log_id=%lu",
+                          sok->synced, sok->last_committed_log_id);
                 if (sok->synced) {
                     bus_set_last_committed_log_id(sok->last_committed_log_id);
                 }
@@ -407,7 +444,6 @@ static void poll_peer_messages(void *arg) {
         }
     }
 }
-#endif
 
 static void on_new_connection(int fd, short revents, void *arg) {
     (void)fd; (void)revents; (void)arg;
@@ -438,6 +474,8 @@ static void on_new_connection(int fd, short revents, void *arg) {
                                 close(client_fd);
                                 return;
                             }
+                            int optval = 1;
+                            setsockopt(client_fd, IPPROTO_TCP, TCP_NODELAY, &optval, sizeof(optval));
                             peer_fd = client_fd;
                             LOG_INFO("Secondary bus %s connected for data sync.", peer_login.node_id);
                             /* 尝试接收 SYNC_REQUEST（非阻塞） */
@@ -478,7 +516,7 @@ static void on_new_connection(int fd, short revents, void *arg) {
                     
                     protocol_ntoh_device_reg(&reg);
                     DeviceRoleAssignMessage reply;
-                    bus_register_device(&reg, &reply);
+                    bus_register_device(&reg, &reply, device_count);
                     protocol_hton_device_role_assign(&reply);
                     send(client_fd, &reply, sizeof(reply), 0);
                     
@@ -513,11 +551,13 @@ static void on_device_data(int fd, short revents, void *arg) {
         if (idx < 0) return;
 
         if (revents & (POLLHUP | POLLERR)) {
+            NodeRole old_role = devices[idx].current_role;
             if (devices[idx].conn_buf) conn_buf_destroy(devices[idx].conn_buf);
             devices[idx] = devices[device_count - 1];
             device_count--;
             unregister_handler(fd);
             close(fd);
+            promote_next_device(old_role);
             return;
         }
 
@@ -527,19 +567,23 @@ static void on_device_data(int fd, short revents, void *arg) {
         ssize_t n = recv(fd, temp_buf, sizeof(temp_buf), 0);
         if (n < 0) {
             if (errno == EAGAIN || errno == EWOULDBLOCK) return;
+            NodeRole old_role = devices[idx].current_role;
             if (devices[idx].conn_buf) conn_buf_destroy(devices[idx].conn_buf);
             devices[idx] = devices[device_count - 1];
             device_count--;
             unregister_handler(fd);
             close(fd);
+            promote_next_device(old_role);
             return;
         }
         if (n == 0) {
+            NodeRole old_role = devices[idx].current_role;
             if (devices[idx].conn_buf) conn_buf_destroy(devices[idx].conn_buf);
             devices[idx] = devices[device_count - 1];
             device_count--;
             unregister_handler(fd);
             close(fd);
+            promote_next_device(old_role);
             return;
         }
 
@@ -558,15 +602,37 @@ static void on_device_data(int fd, short revents, void *arg) {
             MessageHeader *hdr = (MessageHeader *)msg;
             uint16_t type = ntohs(hdr->type);
             if (type == MSG_TYPE_DEVICE_DATA_PACKET) {
+                if (devices[idx].current_role != ROLE_PRIMARY) {
+                    DeviceDataPacketMessage *ddp = (DeviceDataPacketMessage *)msg;
+                    protocol_ntoh_device_data(ddp);
+                    LOG_WARN("Rejected write from non-primary device %s (role=%d)",
+                             ddp->device_id, devices[idx].current_role);
+                    WriteResponseMessage resp;
+                    memset(&resp, 0, sizeof(resp));
+                    resp.header.type = MSG_TYPE_WRITE_RESPONSE;
+                    resp.header.length = sizeof(WriteResponseMessage);
+                    resp.header.timestamp = current_time_ms();
+                    resp.message_id = ddp->message_id;
+                    resp.success = 0;
+                    protocol_hton_header(&resp.header);
+                    resp.message_id = c11_htobe64(resp.message_id);
+                    send(fd, &resp, sizeof(resp), 0);
+                    free(msg); msg = NULL;
+                    continue;
+                }
                 DeviceDataPacketMessage *ddp = (DeviceDataPacketMessage *)msg;
                 protocol_ntoh_device_data(ddp);
+                LOG_INFO("[USER_MSG] from %s: %.*s",
+                         ddp->device_id,
+                         (int)ddp->payload_size,
+                         (const char*)ddp->payload);
                 WriteResponseMessage resp;
                 process_device_packet(ddp, &resp, peer_fd);
                 send(fd, &resp, sizeof(resp), 0);
             } else if (type == MSG_TYPE_CHECK_SYNC_STATUS) {
                 CheckSyncStatusMessage *csm = (CheckSyncStatusMessage *)msg;
                 protocol_ntoh_header(&csm->header);
-                LOG_INFO("Received CHECK_SYNC_STATUS from %s", csm->node_id);
+                LOG_DEBUG("Received CHECK_SYNC_STATUS from %s", csm->node_id);
                 SyncOkMessage sok;
                 memset(&sok, 0, sizeof(sok));
                 sok.header.type = MSG_TYPE_SYNC_OK;
@@ -601,6 +667,7 @@ void send_heartbeat_to_arbiter(void *arg) {
     strncpy(hb.node_id, hb_node_id, NODE_ID_MAX_LEN);
     
     hb.epoch = bus_get_epoch();
+    LOG_DEBUG("[HB] sending heartbeat epoch=%u ts=%lu", hb.epoch, hb.header.timestamp);
     protocol_hton_heartbeat(&hb);
     if (send(arbiter_fd, &hb, sizeof(hb), 0) < 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
         handle_arbiter_disconnect();

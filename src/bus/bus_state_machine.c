@@ -6,7 +6,7 @@
 #include <poll.h>
 #include <errno.h>
 #define PEER_ACK_POLL_MS 200
-#define PEER_ACK_MAX_RETRY 5
+#define PEER_ACK_MAX_RETRY 15
 
 static BusNode self_node;
 static Config bus_cfg;
@@ -132,21 +132,25 @@ bool process_device_packet(const DeviceDataPacketMessage *msg, WriteResponseMess
                 pfd.fd = peer_fd;
                 pfd.events = POLLIN;
                 int pret = poll(&pfd, 1, PEER_ACK_POLL_MS);
-                if (pret > 0 && (pfd.revents & POLLIN)) {
-                    ssize_t n = recv(peer_fd, &ack, sizeof(ack), MSG_DONTWAIT);
-                    if (n == sizeof(ack)) {
-                        ack_received = true;
-                    } else if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+                    if (pret > 0 && (pfd.revents & POLLIN)) {
+                        uint8_t ack_buf[sizeof(BusAckMessage)];
+                        ssize_t n = recv(peer_fd, ack_buf, sizeof(ack_buf), MSG_DONTWAIT);
+                        if (n == sizeof(BusAckMessage)) {
+                            memcpy(&ack, ack_buf, sizeof(ack));
+                            ack_received = true;
+                        } else if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+                            retries++;
+                            continue;
+                        } else {
+                            LOG_WARN("ACK recv unexpected: n=%zd errno=%d", n, errno);
+                            break;
+                        }
+                    } else if (pret == 0) {
                         retries++;
-                        continue;
                     } else {
-                        break; // 连接已断开
+                        LOG_WARN("ACK poll error: pret=%d revents=0x%x", pret, pfd.revents);
+                        break;
                     }
-                } else if (pret == 0) {
-                    retries++;
-                } else {
-                    break; // poll 出错或 peer 断开
-                }
             }
             if (ack_received) {
                 protocol_ntoh_bus_ack(&ack);
@@ -195,8 +199,7 @@ void bus_apply_failover(uint32_t new_epoch) {
     }
 }
 
-bool bus_register_device(const DeviceRegisterMessage *msg, DeviceRoleAssignMessage *reply) {
-    static int device_count = 0;
+bool bus_register_device(const DeviceRegisterMessage *msg, DeviceRoleAssignMessage *reply, int current_device_count) {
     memset(reply, 0, sizeof(DeviceRoleAssignMessage));
     reply->header.type = MSG_TYPE_DEVICE_ROLE_ASSIGN;
     reply->header.length = sizeof(DeviceRoleAssignMessage);
@@ -204,7 +207,7 @@ bool bus_register_device(const DeviceRegisterMessage *msg, DeviceRoleAssignMessa
     strncpy(reply->device_id, msg->device_id, DEVICE_ID_MAX_LEN);
     reply->epoch = self_node.epoch;
 
-    if (device_count == 0) { reply->role = ROLE_PRIMARY; device_count++; }
+    if (current_device_count == 0) { reply->role = ROLE_PRIMARY; }
     else { reply->role = ROLE_SECONDARY; }
     return true;
 }
@@ -234,4 +237,12 @@ void bus_set_last_committed_log_id(uint64_t log_id) {
 void bus_receive_heartbeat_ack(void) {
     self_node.last_heartbeat_ack_ms = current_time_ms();
     self_node.heartbeat_ack_miss_count = 0;
+}
+
+void bus_set_state(BusState state) {
+    transition_to(&self_node, state);
+}
+
+void bus_set_epoch(uint32_t epoch) {
+    self_node.epoch = epoch;
 }

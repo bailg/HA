@@ -10,7 +10,7 @@
 #define LOG_LEVEL_FATAL 4
 
 #ifndef CURRENT_LOG_LEVEL
-#define CURRENT_LOG_LEVEL LOG_LEVEL_DEBUG
+#define CURRENT_LOG_LEVEL LOG_LEVEL_INFO
 #endif
 
 #define LOG_PRINT(level, fmt, ...) do { \

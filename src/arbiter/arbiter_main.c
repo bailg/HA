@@ -76,7 +76,9 @@ static void on_bus_connection(int fd, short revents, void *arg) {
                 ack.header.length = sizeof(ack);
                 ack.header.timestamp = current_time_ms();
                 bool login_accepted = arbiter_login_bus(&login_msg, &ack);
-                protocol_hton_header(&ack.header);
+                /* 先保存 epoch（主机序），再调用完整的 hton */
+                uint32_t ack_epoch_host = ack.epoch;
+                protocol_hton_login_ack(&ack);
                 send(client_fd, &ack, sizeof(ack), 0);
                 
                 if (login_accepted) {
@@ -87,7 +89,7 @@ static void on_bus_connection(int fd, short revents, void *arg) {
                     /* 登录被拒绝：发送 DEGRADE_COMMAND 后再关闭连接 */
                     const char *old_pri = arbiter_get_old_primary();
                     if (old_pri && strcmp(old_pri, login_msg.node_id) == 0) {
-                        arbiter_send_degrade_to_old_primary(client_fd, ack.epoch, old_pri);
+                        arbiter_send_degrade_to_old_primary(client_fd, ack_epoch_host, old_pri);
                         arbiter_clear_old_primary();
                     }
                     conn_buf_destroy(conn->conn_buf);
@@ -242,6 +244,7 @@ int main(int argc, char *argv[]) {
 
     register_handler(listen_fd, POLLIN, on_bus_connection, NULL);
     register_timer(1000, timer_detect_failures, NULL);
+    LOG_INFO("Arbiter started on port %d", port);
     event_loop();
     close(listen_fd);
     return 0;
