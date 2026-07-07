@@ -3,6 +3,7 @@
 #include "bus.h"
 #include "common/network.h"
 #include "common/logging.h"
+#include "common/shm_queue.h"
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <arpa/inet.h>
@@ -40,6 +41,9 @@ static int peer_poll_timer_id = -1;
 
 static BusDeviceConn devices[MAX_FDS];
 static int device_count = 0;
+
+// Named shared memory queue for device message audit
+static ShmQueue *g_shm_queue = NULL;
 
 // ========================================================================
 // Forward declarations
@@ -673,6 +677,10 @@ static void on_device_data(int fd, short revents, void *arg) {
             MessageHeader *hdr = (MessageHeader *)msg;
             uint16_t type = ntohs(hdr->type);
             if (type == MSG_TYPE_DEVICE_DATA_PACKET) {
+                // Enqueue raw message to SHM audit queue before any processing
+                if (g_shm_queue) {
+                    shm_queue_enqueue(g_shm_queue, msg, len);
+                }
                 if (devices[idx].current_role != ROLE_PRIMARY) {
                     DeviceDataPacketMessage *ddp = (DeviceDataPacketMessage *)msg;
                     protocol_ntoh_device_data(ddp);
@@ -774,6 +782,10 @@ int main(int argc, char *argv[]) {
     signal(SIGPIPE, SIG_IGN);
     memset(&arbiter_reconnect, 0, sizeof(arbiter_reconnect));
     arbiter_reconnect.max_retry_interval_ms = 30000;
+
+    // Open named shared memory queue for device message audit
+    g_shm_queue = shm_queue_open(SHM_QUEUE_NAME, 1);
+
     try_reconnect_arbiter(NULL);
 
     int port = config_get_int(&local_bus_cfg, "listen_port", 5000);
@@ -797,5 +809,6 @@ int main(int argc, char *argv[]) {
     if (arbiter_fd >= 0) close(arbiter_fd);
     if (listen_fd >= 0) close(listen_fd);
     if (peer_fd >= 0) close(peer_fd);
+    shm_queue_close(g_shm_queue, SHM_QUEUE_NAME);
     return 0;
 }

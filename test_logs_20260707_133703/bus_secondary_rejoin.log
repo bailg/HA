@@ -1,5 +1,0 @@
-[2026-07-07 13:37:28.383] [src/bus/bus_state_machine.c:59] [LOG_LEVEL_INFO] Bus transitioning from 3 to 4
-[2026-07-07 13:37:28.383] [src/bus/bus_main.c:215] [LOG_LEVEL_INFO] Arbiter assigned role SECONDARY (former primary restarted)
-[2026-07-07 13:37:28.383] [src/bus/bus_main.c:217] [LOG_LEVEL_INFO] Re-login to arbiter successful.
-[2026-07-07 13:37:28.384] [src/bus/bus_main.c:429] [LOG_LEVEL_INFO] Connected to primary bus for data sync.
-[2026-07-07 13:37:28.484] [src/bus/bus_main.c:453] [LOG_LEVEL_ERROR] Peer recv error: Connection reset by peer

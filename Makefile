@@ -1,13 +1,13 @@
 # HA Project Makefile — builds arbiter, bus_primary, bus_secondary, device
 CC = clang-7
 CFLAGS = -std=c11 -Wall -Wextra -Werror -g -O2
-LDFLAGS =
-TARGETS = bin/arbiter bin/bus_primary bin/bus_secondary bin/device
+LDFLAGS = -lrt
+TARGETS = bin/arbiter bin/bus_primary bin/bus_secondary bin/device bin/bus_logger
 
 INCLUDES = -Iinclude
 
 # Source file groups
-COMMON_SRC   = src/common/protocol.c src/common/config.c src/common/network.c src/common/memory.c
+COMMON_SRC   = src/common/protocol.c src/common/config.c src/common/network.c src/common/memory.c src/common/shm_queue.c
 ARBITER_SRC  = $(COMMON_SRC) src/arbiter/arbiter_main.c src/arbiter/arbiter_logic.c
 BUS_SRC      = $(COMMON_SRC) src/bus/bus_main.c src/bus/bus_state_machine.c src/bus/bus_sync.c
 DEVICE_SRC   = $(COMMON_SRC) src/device/device_main.c src/device/device_logic.c
@@ -28,6 +28,11 @@ bin/bus_secondary: $(BUS_SRC)
 	$(CC) $(CFLAGS) $(INCLUDES) -DIS_BUS_SECONDARY $^ -o $@ $(LDFLAGS)
 
 bin/device: $(DEVICE_SRC)
+	@mkdir -p bin
+	$(CC) $(CFLAGS) $(INCLUDES) $^ -o $@ $(LDFLAGS)
+
+LOGGER_SRC = src/common/shm_queue.c src/bus/bus_logger.c
+bin/bus_logger: $(LOGGER_SRC)
 	@mkdir -p bin
 	$(CC) $(CFLAGS) $(INCLUDES) $^ -o $@ $(LDFLAGS)
 
@@ -55,7 +60,19 @@ run_device2: bin/device
 test: all
 	@bash test_ha_scenarios.sh
 
+test_shm: all
+	@bash test_shm_queue.sh
+
+HA_UNIT_SRC = test/test_ha_unit.c src/bus/bus_state_machine.c src/arbiter/arbiter_logic.c \
+              src/device/device_logic.c src/common/protocol.c src/common/config.c
+bin/test_ha_unit: $(HA_UNIT_SRC)
+	@mkdir -p bin
+	$(CC) $(CFLAGS) $(INCLUDES) $^ -o $@ $(LDFLAGS)
+
+test_unit: bin/test_ha_unit
+	./bin/test_ha_unit
+
 clean:
-	@rm -rf bin test_logs
+	@rm -rf bin test_logs test_logs_shm_*
 
 .PHONY: all clean test run_arbiter run_bus_primary run_bus_secondary run_device run_device2
