@@ -1,3 +1,6 @@
+// device_main.c — Device node main entry: bus connections, stdin input, event loop
+//
+
 #include "device.h"
 #include "common/network.h"
 #include "common/logging.h"
@@ -10,6 +13,10 @@
 #include <fcntl.h>
 #include <stdio.h>
 
+// ========
+// Data structures
+// ========
+
 typedef struct {
     int fd;
     ConnectionBuffer *conn_buf;
@@ -19,11 +26,24 @@ typedef struct {
     int reconnect_timer_id;
 } DeviceBusLink;
 
+// ========
+// Global device bus link instances
+// ========
+
 static DeviceBusLink pri_link;
 static DeviceBusLink sec_link;
+
+// ========
+// Forward declarations
+// ========
+
 static int connect_and_register(const char *host, int port, const char* device_id);
 static void on_bus_role_change(int fd, short revents, void *arg);
 static void device_try_reconnect(void *arg);
+
+// ========
+// device_link_init — Initialize a device bus link with given fd, host, and port
+// ========
 
 static void device_link_init(DeviceBusLink *link, int fd, const char *host, int port) {
     link->fd = fd;
@@ -38,6 +58,10 @@ static void device_link_init(DeviceBusLink *link, int fd, const char *host, int 
     }
 }
 
+// ========
+// device_link_destroy — Destroy a device bus link and schedule reconnect
+// ========
+
 static void device_link_destroy(DeviceBusLink *link) {
     if (link->conn_buf) {
         conn_buf_destroy(link->conn_buf);
@@ -51,6 +75,10 @@ static void device_link_destroy(DeviceBusLink *link) {
         link->reconnect_timer_id = register_timer(2000, device_try_reconnect, link);
     }
 }
+
+// ========
+// device_try_reconnect — Attempt to reconnect a broken bus link
+// ========
 
 static void device_try_reconnect(void *arg) {
     DeviceBusLink *link = (DeviceBusLink *)arg;
@@ -68,11 +96,19 @@ static void device_try_reconnect(void *arg) {
     }
 }
 
+// ========
+// timer_query_sync — Periodically query secondary bus sync status
+// ========
+
 /* 定时向备总线查询同步状态 */
 static void timer_query_sync(void *arg) {
     (void)arg;
     device_query_sync_status(sec_link.fd);
 }
+
+// ========
+// on_stdin_input — Read and process interactive stdin input line by line
+// ========
 
 /* 交互式输入：从 stdin 读取一行并作为业务数据发送 */
 static uint64_t interactive_seq = 0;
@@ -126,6 +162,10 @@ static void on_stdin_input(int fd, short revents, void *arg) {
     }
 }
 
+// ========
+// connect_and_register — Connect to a bus host and register as a device
+// ========
+
 /* 尝试连接并注册 */
 static int connect_and_register(const char *host, int port, const char* device_id) {
     struct sockaddr_in addr;
@@ -174,6 +214,10 @@ static int connect_and_register(const char *host, int port, const char* device_i
     close(fd);
     return -1;
 }
+
+// ========
+// on_bus_role_change — Handle incoming bus messages (role change, sync status)
+// ========
 
 /* 事件处理器：接收来自总线的 ROLE_CHANGE 消息 */
 static void on_bus_role_change(int fd, short revents, void *arg) {
@@ -233,9 +277,13 @@ static void on_bus_role_change(int fd, short revents, void *arg) {
     }
 }
 
+// ========
+// main — Entry point: load config, connect to buses, start event loop
+// ========
+
 int main(int argc, char *argv[]) {
     if (argc < 2) LOG_FATAL("Usage: %s <config>", argv[0]);
-    
+
     Config cfg;
     config_load(&cfg, argv[1]);
     config_validate_required(&cfg, "device_id");
@@ -248,7 +296,7 @@ int main(int argc, char *argv[]) {
     const char *pri_host = config_get(&cfg, "bus_primary_host");
     if (!pri_host) pri_host = "127.0.0.1";
     int pri_port = config_get_int(&cfg, "bus_primary_port", 5000);
-    
+
     const char *sec_host = config_get(&cfg, "bus_secondary_host");
     if (!sec_host) sec_host = "127.0.0.1";
     int sec_port = config_get_int(&cfg, "bus_secondary_port", 5001);

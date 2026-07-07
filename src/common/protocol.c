@@ -1,18 +1,22 @@
+// protocol.c — Network byte-order conversion for message types
 #include "common/protocol.h"
 #include <arpa/inet.h>
 
+// Convert 64-bit value from host to big-endian byte order
 uint64_t c11_htobe64(uint64_t val) {
     uint32_t lo = htonl((uint32_t)val);
     uint32_t hi = htonl((uint32_t)(val >> 32));
     return ((uint64_t)lo << 32) | hi;
 }
 
+// Convert 64-bit value from big-endian to host byte order
 uint64_t c11_be64toh(uint64_t val) {
     uint32_t lo = ntohl((uint32_t)(val >> 32));
     uint32_t hi = ntohl((uint32_t)val);
     return ((uint64_t)lo << 32) | hi;
 }
 
+// ======== hton/ntoh message conversion ========
 void protocol_hton_header(MessageHeader *hdr) {
     hdr->type = htons(hdr->type);
     hdr->length = htons(hdr->length);

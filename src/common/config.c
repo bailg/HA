@@ -1,7 +1,9 @@
+// config.c — Configuration file loading and key-value access
 #include "common/config.h"
 #include <string.h>
 #include <stdlib.h>
 
+// Load config from file, returns 0 on success or -1 on error
 int config_load(Config *cfg, const char *filename) {
     FILE *fp = fopen(filename, "r");
     if (!fp) {
@@ -33,6 +35,7 @@ int config_load(Config *cfg, const char *filename) {
     return 0;
 }
 
+// Get string value for key, returns NULL if not found
 const char* config_get(const Config *cfg, const char *key) {
     if (!cfg || !key) return NULL;
     for (int i = 0; i < cfg->count; i++) {
@@ -43,11 +46,13 @@ const char* config_get(const Config *cfg, const char *key) {
     return NULL;
 }
 
+// Get int value for key, returns default_val if missing
 int config_get_int(const Config *cfg, const char *key, int default_val) {
     const char *val = config_get(cfg, key);
     return val ? atoi(val) : default_val;
 }
 
+// Validate required key exists, returns -1 and logs fatal if missing
 int config_validate_required(const Config *cfg, const char *key) {
     const char *v = config_get(cfg, key);
     if (!v) {
@@ -57,6 +62,7 @@ int config_validate_required(const Config *cfg, const char *key) {
     return 0;
 }
 
+// Validate int config is within [min, max], returns value or -1 on error
 int config_validate_int_range(const Config *cfg, const char *key, int min, int max, int default_val) {
     int v = config_get_int(cfg, key, default_val);
     if (v < min || v > max) {

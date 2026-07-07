@@ -1,3 +1,5 @@
+// arbiter_main.c — Arbiter main entry, network listener, message dispatch
+//
 #include "arbiter.h"
 #include "common/network.h"
 #include "common/logging.h"
@@ -15,7 +17,7 @@ typedef struct {
     int fd;
     ConnectionBuffer *conn_buf;
     ProtocolReader reader;
-    char node_id[NODE_ID_MAX_LEN]; 
+    char node_id[NODE_ID_MAX_LEN];
 } ArbiterConnection;
 
 static int listen_fd = -1;
@@ -26,6 +28,9 @@ static void on_bus_data(int fd, short revents, void *arg);
 static ArbiterConnection* find_connection(int fd);
 static ArbiterConnection* find_connection_by_node(const char *node_id);
 
+// ======== Helper functions ========
+
+// Find a connection by file descriptor
 static ArbiterConnection* find_connection(int fd) {
     for (int i = 0; i < conn_count; i++) {
         if (connections[i].fd == fd) return &connections[i];
@@ -33,6 +38,7 @@ static ArbiterConnection* find_connection(int fd) {
     return NULL;
 }
 
+// Find a connection by node ID
 static ArbiterConnection* find_connection_by_node(const char *node_id) {
     for (int i = 0; i < conn_count; i++) {
         if (strcmp(connections[i].node_id, node_id) == 0) return &connections[i];
@@ -40,6 +46,9 @@ static ArbiterConnection* find_connection_by_node(const char *node_id) {
     return NULL;
 }
 
+// ======== Event handlers ========
+
+// Handle incoming bus node connection and process login
 static void on_bus_connection(int fd, short revents, void *arg) {
     (void)fd; (void)revents; (void)arg;
     if (revents & POLLIN) {
@@ -48,7 +57,7 @@ static void on_bus_connection(int fd, short revents, void *arg) {
         int client_fd = accept(listen_fd, (struct sockaddr*)&cli_addr, &cli_len);
         if (client_fd >= 0) {
             if (conn_count >= MAX_BUS_CONNECTIONS) { close(client_fd); return; }
-            
+
             ArbiterConnection *conn = &connections[conn_count];
             conn->fd = client_fd;
             conn->conn_buf = conn_buf_create(client_fd, 4096);
@@ -68,8 +77,8 @@ static void on_bus_connection(int fd, short revents, void *arg) {
             }
             if (total == sizeof(login_msg)) {
                 protocol_ntoh_bus_login(&login_msg);
-                strncpy(conn->node_id, login_msg.node_id, NODE_ID_MAX_LEN); 
-                
+                strncpy(conn->node_id, login_msg.node_id, NODE_ID_MAX_LEN);
+
                 LoginAckMessage ack;
                 memset(&ack, 0, sizeof(ack));
                 ack.header.type = MSG_TYPE_LOGIN_ACK;
@@ -80,7 +89,7 @@ static void on_bus_connection(int fd, short revents, void *arg) {
                 uint32_t ack_epoch_host = ack.epoch;
                 protocol_hton_login_ack(&ack);
                 send(client_fd, &ack, sizeof(ack), 0);
-                
+
                 if (login_accepted) {
                     fcntl(client_fd, F_SETFL, flags);
                     register_handler(client_fd, POLLIN, on_bus_data, NULL);
@@ -103,6 +112,7 @@ static void on_bus_connection(int fd, short revents, void *arg) {
     }
 }
 
+// Handle incoming data from a connected bus node
 static void on_bus_data(int fd, short revents, void *arg) {
     (void)arg;
     if (revents & (POLLIN | POLLHUP | POLLERR)) {
@@ -110,7 +120,7 @@ static void on_bus_data(int fd, short revents, void *arg) {
         if (!conn) return;
         uint8_t temp_buf[1024];
         ssize_t n = recv(fd, temp_buf, sizeof(temp_buf), 0);
-        
+
         if (n < 0) {
             if (errno == EAGAIN || errno == EWOULDBLOCK) return;
             goto disconnect;
@@ -169,16 +179,17 @@ disconnect:
     }
 }
 
+// Periodic timer to detect primary failure and trigger failover
 static void timer_detect_failures(void *arg) {
     (void)arg;
     const char *target_id = NULL;
     uint32_t new_epoch = 0;
-    
+
     if (arbiter_prepare_failover(&target_id, &new_epoch)) {
         ArbiterConnection *target_conn = find_connection_by_node(target_id);
         if (target_conn) {
             LOG_INFO("Sending FAILOVER_COMMAND to %s, epoch %u", target_id, new_epoch);
-            
+
             FailoverCommandMessage cmd;
             memset(&cmd, 0, sizeof(cmd));
             cmd.header.type = MSG_TYPE_FAILOVER_COMMAND;
@@ -188,20 +199,20 @@ static void timer_detect_failures(void *arg) {
             cmd.promote_to = ROLE_PRIMARY;
             cmd.epoch = new_epoch;
             protocol_hton_failover_cmd(&cmd);
-            
+
             // 【关键修复】对于关键的切换指令，临时切为阻塞发送，确保绝对到达内核缓冲区
             int flags = fcntl(target_conn->fd, F_GETFL, 0);
             fcntl(target_conn->fd, F_SETFL, flags & ~O_NONBLOCK);
-            
+
             ssize_t sent = send(target_conn->fd, &cmd, sizeof(cmd), 0);
-            
+
             fcntl(target_conn->fd, F_SETFL, flags); // 恢复非阻塞
-            
+
             if (sent != sizeof(cmd)) {
                 LOG_ERROR("Failed to send FAILOVER_COMMAND to %s (sent %zd)", target_id, sent);
             } else {
                 arbiter_confirm_promotion(target_id, new_epoch);
-                
+
                 /* 【方向B+D】发送 DEGRADE_COMMAND 给旧主节点 */
                 const char *old_primary = arbiter_get_old_primary();
                 if (old_primary) {
@@ -216,6 +227,9 @@ static void timer_detect_failures(void *arg) {
     }
 }
 
+// ======== Main ========
+
+// Arbiter entry point — parse config, set up networking, start event loop
 int main(int argc, char *argv[]) {
     if (argc < 2) LOG_FATAL("Usage: %s <config_file>", argv[0]);
     Config cfg;

@@ -1,3 +1,4 @@
+// network.c — Non-blocking network I/O, epoll event loop, reconnection
 #include "common/network.h"
 #include "common/logging.h"
 #include "common/memory.h"
@@ -10,6 +11,9 @@
 #include <netinet/tcp.h>
 #include <errno.h>
 
+// ======== ConnectionBuffer ========
+
+// Create a connection buffer for the given fd
 ConnectionBuffer* conn_buf_create(int fd, size_t buf_size) {
     ConnectionBuffer *cb = safe_malloc(sizeof(ConnectionBuffer));
     cb->fd = fd;
@@ -23,6 +27,7 @@ ConnectionBuffer* conn_buf_create(int fd, size_t buf_size) {
     return cb;
 }
 
+// Destroy a connection buffer and free resources
 void conn_buf_destroy(ConnectionBuffer *cb) {
     if (cb) {
         SAFE_FREE(cb->read_buf);
@@ -31,6 +36,9 @@ void conn_buf_destroy(ConnectionBuffer *cb) {
     }
 }
 
+// ======== ProtocolReader ========
+
+// Initialize a protocol reader with the given buffer
 void protocol_reader_init(ProtocolReader *pr, ConnectionBuffer *buf) {
     pr->buf = buf;
     pr->read_state = READ_STATE_HEADER;
@@ -38,6 +46,7 @@ void protocol_reader_init(ProtocolReader *pr, ConnectionBuffer *buf) {
     memset(&pr->current_header, 0, sizeof(MessageHeader));
 }
 
+// Read one message from buffer, returns 1 on success, 0 if incomplete, -1 on error
 int protocol_read_message(ProtocolReader *pr, uint8_t **out_msg, uint16_t *out_len) {
     ConnectionBuffer *buf = pr->buf;
     if (pr->read_state == READ_STATE_HEADER) {
@@ -45,14 +54,14 @@ int protocol_read_message(ProtocolReader *pr, uint8_t **out_msg, uint16_t *out_l
         if (buf->read_buf_offset < header_size) {
             return 0;
         }
-        
+
         // 拷贝出头部，并【立即转为主机序】再进行校验，避免双重 ntohs 翻转
         memcpy(&pr->current_header, buf->read_buf, header_size);
         protocol_ntoh_header(&pr->current_header);
-        
-        if (pr->current_header.length < header_size || 
+
+        if (pr->current_header.length < header_size ||
             pr->current_header.length > header_size + PAYLOAD_MAX_LEN + 64) {
-            LOG_ERROR("Invalid message length: %u, type: %u", 
+            LOG_ERROR("Invalid message length: %u, type: %u",
                       pr->current_header.length, pr->current_header.type);
             memmove(buf->read_buf, buf->read_buf + header_size, buf->read_buf_offset - header_size);
             buf->read_buf_offset -= header_size;
@@ -61,24 +70,27 @@ int protocol_read_message(ProtocolReader *pr, uint8_t **out_msg, uint16_t *out_l
         pr->read_state = READ_STATE_PAYLOAD;
         pr->payload_read = 0;
     }
-    
+
     size_t total_size = pr->current_header.length;
     if (buf->read_buf_offset < total_size) {
-        return 0; 
+        return 0;
     }
-    
+
     *out_len = (uint16_t)total_size;
     *out_msg = safe_malloc(total_size);
     // 注意：这里提取出来的 out_msg 依然是网络字节序，由调用者根据 type 自行转换
     memcpy(*out_msg, buf->read_buf, total_size);
-    
+
     memmove(buf->read_buf, buf->read_buf + total_size, buf->read_buf_offset - total_size);
     buf->read_buf_offset -= total_size;
-    
+
     pr->read_state = READ_STATE_HEADER;
     return 1;
 }
 
+// ======== Socket helpers ========
+
+// Create a non-blocking TCP socket with common options
 int create_nonblocking_socket(void) {
     int fd = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0);
     if (fd < 0) {
@@ -93,12 +105,14 @@ int create_nonblocking_socket(void) {
     return fd;
 }
 
+// Get current time in milliseconds
 int64_t current_time_ms(void) {
     struct timeval tv;
     gettimeofday(&tv, NULL);
     return (int64_t)tv.tv_sec * 1000 + tv.tv_usec / 1000;
 }
 
+// Attempt connection, returns 0 on success, 1 if in progress, -1 on error
 int try_connect(ReconnectContext *ctx) {
     int ret = connect(ctx->fd, (struct sockaddr*)&ctx->target_addr, sizeof(ctx->target_addr));
     if (ret == 0) {
@@ -111,6 +125,7 @@ int try_connect(ReconnectContext *ctx) {
     return -1;
 }
 
+// Get next exponential backoff delay in ms (caps at max_retry_interval_ms)
 int get_next_backoff_ms(ReconnectContext *ctx) {
     int backoff = (1 << ctx->retry_count) * 1000;
     if (backoff > ctx->max_retry_interval_ms || backoff <= 0) {
@@ -129,6 +144,9 @@ int timer_count = 0;
 
 static int epoll_fd = -1;
 
+// ======== Event loop / epoll ========
+
+// Unregister a timer by its id, replacing with last entry
 int unregister_timer(int timer_id) {
     if (timer_id < 0 || timer_id >= timer_count) return -1;
     // 将要删除的定时器与末尾交换，并减少数量
@@ -137,6 +155,7 @@ int unregister_timer(int timer_id) {
     return 0;
 }
 
+// Main event loop — waits on epoll and fires handlers/timers
 void event_loop(void) {
     if (epoll_fd < 0) {
         epoll_fd = epoll_create1(0);
@@ -191,6 +210,7 @@ void event_loop(void) {
     epoll_fd = -1;
 }
 
+// Register an fd with epoll for the given events; creates epoll fd if needed
 int register_handler(int fd, short events, event_callback cb, void *arg) {
     if (handler_count >= MAX_FDS) return -1;
     handlers[handler_count].fd = fd;
@@ -220,6 +240,7 @@ int register_handler(int fd, short events, event_callback cb, void *arg) {
     return 0;
 }
 
+// Unregister an fd from handler list and epoll
 void unregister_handler(int fd) {
     for (int i = 0; i < handler_count; i++) {
         if (handlers[i].fd == fd) {
@@ -233,6 +254,7 @@ void unregister_handler(int fd) {
     }
 }
 
+// Register a periodic timer that fires every interval_ms
 int register_timer(int interval_ms, timer_callback cb, void *arg) {
     if (timer_count >= MAX_TIMERS) return -1;
     timers[timer_count].interval_ms = interval_ms;
@@ -243,12 +265,16 @@ int register_timer(int interval_ms, timer_callback cb, void *arg) {
     return 0;
 }
 
+// ======== Signal handling ========
+
+// Signal handler — sets running to 0 for graceful shutdown
 void signal_handler(int sig) {
     (void)sig;
     LOG_INFO("Received signal, shutting down...");
     running = 0;
 }
 
+// Install signal handlers for SIGINT and SIGTERM
 void setup_signals(void) {
     signal(SIGINT, signal_handler);
     signal(SIGTERM, signal_handler);

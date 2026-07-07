@@ -1,3 +1,4 @@
+// protocol.h — Wire protocol message definitions and byte-order conversion
 #pragma once
 #include <stdint.h>
 #include <stdbool.h>
@@ -6,6 +7,7 @@
 #define DEVICE_ID_MAX_LEN 32
 #define PAYLOAD_MAX_LEN 256
 
+// ======== Type Enums ========
 typedef enum {
     NODE_STATE_INIT = 0,
     NODE_STATE_OFFLINE,
@@ -51,6 +53,7 @@ typedef enum {
     ERR_ALREADY_PROCESSED = -7,
 } ErrorCode;
 
+// ======== Message Struct Definitions ========
 #pragma pack(push, 1)
 typedef struct {
     uint16_t type;
@@ -186,40 +189,58 @@ typedef struct {
     uint32_t epoch;
 } DeviceRole;
 
-/* Protocol conversion function declarations */
+// ======== Protocol Conversion Functions ========
+// Convert message header to/from network byte order
 void protocol_hton_header(MessageHeader *hdr);
 void protocol_ntoh_header(MessageHeader *hdr);
+// Convert BusLoginMessage to/from network byte order
 void protocol_hton_bus_login(BusLoginMessage *msg);
 void protocol_ntoh_bus_login(BusLoginMessage *msg);
+// Convert HeartbeatMessage to/from network byte order
 void protocol_hton_heartbeat(HeartbeatMessage *msg);
 void protocol_ntoh_heartbeat(HeartbeatMessage *msg);
+// Convert HeartbeatAckMessage to/from network byte order
 void protocol_hton_heartbeat_ack(HeartbeatAckMessage *msg);
 void protocol_ntoh_heartbeat_ack(HeartbeatAckMessage *msg);
+// Convert FailoverCommandMessage to/from network byte order
 void protocol_hton_failover_cmd(FailoverCommandMessage *msg);
 void protocol_ntoh_failover_cmd(FailoverCommandMessage *msg);
+// Convert FailoverAckMessage to/from network byte order
 void protocol_hton_failover_ack(FailoverAckMessage *msg);
 void protocol_ntoh_failover_ack(FailoverAckMessage *msg);
+// Convert DeviceRegisterMessage to/from network byte order
 void protocol_hton_device_reg(DeviceRegisterMessage *msg);
 void protocol_ntoh_device_reg(DeviceRegisterMessage *msg);
+// Convert DeviceRoleAssignMessage to/from network byte order
 void protocol_hton_device_role_assign(DeviceRoleAssignMessage *msg);
 void protocol_ntoh_device_role_assign(DeviceRoleAssignMessage *msg);
+// Convert RoleChangeMessage to/from network byte order
 void protocol_hton_role_change(RoleChangeMessage *msg);
 void protocol_ntoh_role_change(RoleChangeMessage *msg);
+// Convert DeviceDataPacketMessage to/from network byte order
 void protocol_hton_device_data(DeviceDataPacketMessage *msg);
 void protocol_ntoh_device_data(DeviceDataPacketMessage *msg);
+// Convert BusSyncEntryMessage to/from network byte order
 void protocol_hton_sync_entry(BusSyncEntryMessage *msg);
 void protocol_ntoh_sync_entry(BusSyncEntryMessage *msg);
+// Convert BusAckMessage to/from network byte order
 void protocol_hton_bus_ack(BusAckMessage *msg);
 void protocol_ntoh_bus_ack(BusAckMessage *msg);
+// Convert LoginAckMessage to/from network byte order
 void protocol_hton_login_ack(LoginAckMessage *msg);
 void protocol_ntoh_login_ack(LoginAckMessage *msg);
+// Convert DegradeCommandMessage to/from network byte order
 void protocol_hton_degrade_cmd(DegradeCommandMessage *msg);
 void protocol_ntoh_degrade_cmd(DegradeCommandMessage *msg);
+// Convert SyncRequestMessage to/from network byte order
 void protocol_hton_sync_request(SyncRequestMessage *msg);
 void protocol_ntoh_sync_request(SyncRequestMessage *msg);
+// Convert SyncOkMessage to/from network byte order
 void protocol_hton_sync_ok(SyncOkMessage *msg);
 void protocol_ntoh_sync_ok(SyncOkMessage *msg);
 
-/* Pure C11 64-bit byte swap fallbacks */
+// ======== Byte Swap Utilities ========
+// Pure C11 64-bit host-to-network byte swap
 uint64_t c11_htobe64(uint64_t val);
+// Pure C11 network-to-host byte swap
 uint64_t c11_be64toh(uint64_t val);

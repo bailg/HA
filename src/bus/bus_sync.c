@@ -6,16 +6,20 @@
 #include <errno.h>
 #include <fcntl.h>
 
-/*
- * bus_sync.c - 总线主备同步模块
- *
- * 实现第 6 章设计的强一致性主备同步协议：
- * - 主节点将写日志同步发送到备节点，阻塞等待 ACK 后才提交
- * - 备节点接收 SYNC_ENTRY 并应用到本地状态，回复 ACK
- * - 备节点故障恢复后向主节点请求全量同步
- */
+// bus_sync.c — Bus primary-secondary sync module: strong-consistency replication
+//
+// Implements the strong-consistency primary-backup sync protocol:
+// - Primary sends write log to secondary, blocks on ACK before committing
+// - Secondary receives SYNC_ENTRY, applies locally, replies ACK
+// - Secondary requests full sync from primary after recovery
+//
+// 总线主备同步模块 — 实现第6章设计的强一致性主备同步协议
 
-/* 主节点：发送同步条目到备节点并等待确认 */
+// ========================================================================
+// Primary-side sync
+// ========================================================================
+
+// Send a sync entry to the secondary and wait for ACK (blocking, strong consistency)
 bool bus_sync_entry_to_secondary(int peer_fd, uint64_t log_id,
                                  const uint8_t *payload, uint32_t payload_size) {
     if (peer_fd < 0) return false;
@@ -54,7 +58,11 @@ bool bus_sync_entry_to_secondary(int peer_fd, uint64_t log_id,
     return true;
 }
 
-/* 备节点：从 peer_fd 接收一条同步条目并回复 ACK */
+// ========================================================================
+// Secondary-side sync
+// ========================================================================
+
+// Receive a sync entry from the primary (non-blocking, caller must poll first)
 bool bus_receive_sync_entry(int peer_fd, uint64_t *out_log_id,
                             uint8_t *out_payload, uint32_t *out_payload_size) {
     if (peer_fd < 0) return false;
@@ -93,7 +101,7 @@ bool bus_receive_sync_entry(int peer_fd, uint64_t *out_log_id,
     return true;
 }
 
-/* 备节点：向主节点发送同步确认 */
+// Send a sync ACK back to the primary node
 void bus_send_sync_ack(int peer_fd, uint64_t log_id, uint8_t status) {
     BusAckMessage ack;
     memset(&ack, 0, sizeof(ack));
@@ -106,7 +114,11 @@ void bus_send_sync_ack(int peer_fd, uint64_t log_id, uint8_t status) {
     send(peer_fd, &ack, sizeof(ack), MSG_NOSIGNAL);
 }
 
-/* 备节点恢复后：向主节点发送全量同步请求 */
+// ========================================================================
+// Full sync
+// ========================================================================
+
+// Request a full sync from the primary (called by secondary after recovery)
 void bus_request_full_sync(int peer_fd, const char *node_id) {
     SyncRequestMessage req;
     memset(&req, 0, sizeof(req));
@@ -119,7 +131,7 @@ void bus_request_full_sync(int peer_fd, const char *node_id) {
     LOG_INFO("Sent sync request from %s to primary", node_id);
 }
 
-/* 主节点：回复备节点的同步状态查询 */
+// Respond to a secondary node's sync status query
 void bus_respond_sync_status(int peer_fd, const char *node_id,
                              bool synced, uint64_t log_id) {
     SyncOkMessage resp;

@@ -1,3 +1,4 @@
+# HA Project Makefile — builds arbiter, bus_primary, bus_secondary, device
 CC = clang-7
 CFLAGS = -std=c11 -Wall -Wextra -Werror -g -O2
 LDFLAGS =
@@ -5,13 +6,15 @@ TARGETS = bin/arbiter bin/bus_primary bin/bus_secondary bin/device
 
 INCLUDES = -Iinclude
 
-COMMON_SRC = src/common/protocol.c src/common/config.c src/common/network.c src/common/memory.c
-ARBITER_SRC = $(COMMON_SRC) src/arbiter/arbiter_main.c src/arbiter/arbiter_logic.c
-BUS_SRC = $(COMMON_SRC) src/bus/bus_main.c src/bus/bus_state_machine.c src/bus/bus_sync.c
-DEVICE_SRC = $(COMMON_SRC) src/device/device_main.c src/device/device_logic.c
+# Source file groups
+COMMON_SRC   = src/common/protocol.c src/common/config.c src/common/network.c src/common/memory.c
+ARBITER_SRC  = $(COMMON_SRC) src/arbiter/arbiter_main.c src/arbiter/arbiter_logic.c
+BUS_SRC      = $(COMMON_SRC) src/bus/bus_main.c src/bus/bus_state_machine.c src/bus/bus_sync.c
+DEVICE_SRC   = $(COMMON_SRC) src/device/device_main.c src/device/device_logic.c
 
 all: $(TARGETS)
 
+# bus_primary and bus_secondary share the same source but define different compile-time flags
 bin/arbiter: $(ARBITER_SRC)
 	@mkdir -p bin
 	$(CC) $(CFLAGS) $(INCLUDES) $^ -o $@ $(LDFLAGS)
@@ -28,7 +31,7 @@ bin/device: $(DEVICE_SRC)
 	@mkdir -p bin
 	$(CC) $(CFLAGS) $(INCLUDES) $^ -o $@ $(LDFLAGS)
 
-# 便捷运行目标
+# Convenience run targets
 run_arbiter: bin/arbiter
 	@echo "Starting arbiter..."
 	./bin/arbiter configs/arbiter.conf
@@ -50,7 +53,7 @@ run_device2: bin/device
 	./bin/device configs/device2.conf
 
 test: all
-	@bash run_test.sh
+	@bash test_ha_scenarios.sh
 
 clean:
 	@rm -rf bin test_logs
