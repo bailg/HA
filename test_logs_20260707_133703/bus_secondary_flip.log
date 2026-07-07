@@ -1,0 +1,2 @@
+[2026-07-07 13:37:58.530] [src/bus/bus_main.c:217] [LOG_LEVEL_INFO] Re-login to arbiter successful.
+[2026-07-07 13:37:58.532] [src/bus/bus_main.c:429] [LOG_LEVEL_INFO] Connected to primary bus for data sync.

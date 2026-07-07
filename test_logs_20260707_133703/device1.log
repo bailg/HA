@@ -1,0 +1,15 @@
+[2026-07-07 13:37:06.219] [src/device/device_logic.c:45] [LOG_LEVEL_INFO] Device assigned role 0, epoch 0
+[2026-07-07 13:37:06.220] [src/device/device_main.c:205] [LOG_LEVEL_INFO] Registered with bus 127.0.0.1:5000, role 0
+[2026-07-07 13:37:06.220] [src/device/device_logic.c:45] [LOG_LEVEL_INFO] Device assigned role 0, epoch 0
+[2026-07-07 13:37:06.221] [src/device/device_main.c:205] [LOG_LEVEL_INFO] Registered with bus 127.0.0.1:5001, role 0
+[2026-07-07 13:37:06.221] [src/common/network.c:236] [LOG_LEVEL_ERROR] epoll_ctl ADD failed for fd 0: Operation not permitted
+[2026-07-07 13:37:06.221] [src/device/device_main.c:332] [LOG_LEVEL_INFO] Interactive mode ready — type a message and press Enter to send data
+[2026-07-07 13:37:09.851] [src/device/device_main.c:191] [LOG_LEVEL_ERROR] Failed to connect to 127.0.0.1:5000: Connection refused
+[2026-07-07 13:37:11.857] [src/device/device_main.c:191] [LOG_LEVEL_ERROR] Failed to connect to 127.0.0.1:5000: Connection refused
+[2026-07-07 13:37:11.857] [src/device/device_main.c:191] [LOG_LEVEL_ERROR] Failed to connect to 127.0.0.1:5000: Connection refused
+[2026-07-07 13:37:11.857] [src/device/device_logic.c:60] [LOG_LEVEL_INFO] Device role changed to 1, epoch 1
+[2026-07-07 13:37:11.857] [src/device/device_logic.c:60] [LOG_LEVEL_INFO] Device role changed to 0, epoch 1
+[2026-07-07 13:37:13.860] [src/device/device_main.c:191] [LOG_LEVEL_ERROR] Failed to connect to 127.0.0.1:5000: Connection refused
+[2026-07-07 13:37:13.861] [src/device/device_main.c:191] [LOG_LEVEL_ERROR] Failed to connect to 127.0.0.1:5000: Connection refused
+[2026-07-07 13:37:13.861] [src/device/device_main.c:191] [LOG_LEVEL_ERROR] Failed to connect to 127.0.0.1:5000: Connection refused
+[2026-07-07 13:37:13.861] [src/device/device_main.c:191] [LOG_LEVEL_ERROR] Failed to connect to 127.0.0.1:5000: Connection refused

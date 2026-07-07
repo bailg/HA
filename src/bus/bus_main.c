@@ -59,6 +59,16 @@ static void on_new_connection(int fd, short revents, void *arg);
 static void on_device_data(int fd, short revents, void *arg);
 static void connect_to_peer(void);
 static void poll_peer_messages(void *arg);
+static void close_peer_connection(void);
+
+static bool close_peer_connection_on_error(const char *why) {
+    if (peer_fd >= 0 || peer_conn_buf) {
+        LOG_WARN("Peer connection closed: %s", why);
+        close_peer_connection();
+        return true;
+    }
+    return false;
+}
 
 // ========================================================================
 // Timer helpers
@@ -449,10 +459,15 @@ static void poll_peer_messages(void *arg) {
             }
             memcpy(peer_conn_buf->read_buf + peer_conn_buf->read_buf_offset, temp_buf, n);
             peer_conn_buf->read_buf_offset += n;
-        } else if (n < 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
-            LOG_ERROR("Peer recv error: %s", strerror(errno));
-            return;
-        } else if (n == 0) {
+        } else if (n < 0) {
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                /* 暂时没有数据 */
+            } else {
+                close_peer_connection_on_error("peer recv error");
+                return;
+            }
+        } else {
+            close_peer_connection_on_error("peer closed connection");
             return;
         }
 

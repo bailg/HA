@@ -1,0 +1,12 @@
+[2026-07-07 13:37:19.563] [src/arbiter/arbiter_main.c:261] [LOG_LEVEL_INFO] Arbiter started on port 4000
+[2026-07-07 13:37:22.551] [src/common/network.c:65] [LOG_LEVEL_ERROR] Invalid message length: 25205, type: 48247
+[2026-07-07 13:37:24.558] [src/common/network.c:65] [LOG_LEVEL_ERROR] Invalid message length: 25205, type: 50252
+[2026-07-07 13:37:25.370] [src/arbiter/arbiter_main.c:168] [LOG_LEVEL_WARN] Bus node disconnected, fd=9
+[2026-07-07 13:37:25.370] [src/arbiter/arbiter_main.c:168] [LOG_LEVEL_WARN] Bus node disconnected, fd=8
+[2026-07-07 13:37:25.370] [src/arbiter/arbiter_main.c:168] [LOG_LEVEL_WARN] Bus node disconnected, fd=7
+[2026-07-07 13:37:25.371] [src/arbiter/arbiter_main.c:168] [LOG_LEVEL_WARN] Bus node disconnected, fd=6
+[2026-07-07 13:37:25.371] [src/arbiter/arbiter_main.c:168] [LOG_LEVEL_WARN] Bus node disconnected, fd=5
+[2026-07-07 13:37:28.383] [src/arbiter/arbiter_logic.c:62] [LOG_LEVEL_WARN] Login from older epoch node bus_primary (epoch 0 < 65537), accepting as SECONDARY
+[2026-07-07 13:37:29.193] [src/arbiter/arbiter_main.c:168] [LOG_LEVEL_WARN] Bus node disconnected, fd=5
+[2026-07-07 13:37:30.208] [src/arbiter/arbiter_logic.c:62] [LOG_LEVEL_WARN] Login from older epoch node bus_primary (epoch 0 < 65537), accepting as SECONDARY
+[2026-07-07 13:37:31.020] [src/arbiter/arbiter_logic.c:62] [LOG_LEVEL_WARN] Login from older epoch node bus_secondary (epoch 0 < 65537), accepting as SECONDARY

@@ -1,0 +1,9 @@
+[2026-07-07 13:37:38.209] [src/bus/bus_main.c:217] [LOG_LEVEL_INFO] Re-login to arbiter successful.
+[2026-07-07 13:37:38.210] [src/bus/bus_main.c:431] [LOG_LEVEL_ERROR] Failed to connect to primary bus.
+[2026-07-07 13:37:39.860] [src/bus/bus_main.c:85] [LOG_LEVEL_INFO] Promoted device device_002 to PRIMARY
+[2026-07-07 13:37:48.196] [src/bus/bus_state_machine.c:255] [LOG_LEVEL_INFO] Applying FAILOVER_COMMAND, new epoch: 1
+[2026-07-07 13:37:48.197] [src/bus/bus_state_machine.c:59] [LOG_LEVEL_INFO] Bus transitioning from 4 to 3
+[2026-07-07 13:37:48.197] [src/bus/bus_main.c:327] [LOG_LEVEL_INFO] Demoted device device_002 to SECONDARY after failover
+[2026-07-07 13:37:48.197] [src/bus/bus_main.c:344] [LOG_LEVEL_INFO] Promoted device device_002 to PRIMARY after failover
+[2026-07-07 13:37:50.711] [src/bus/bus_main.c:530] [LOG_LEVEL_INFO] Secondary bus bus_primary connected for data sync.
+[2026-07-07 13:37:50.711] [src/bus/bus_main.c:539] [LOG_LEVEL_INFO] Received SYNC_REQUEST from bus_primary, sending SYNC_OK

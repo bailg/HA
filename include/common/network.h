@@ -48,6 +48,8 @@ int protocol_read_message(ProtocolReader *pr, uint8_t **out_msg, uint16_t *out_l
 // ======== Socket Helpers ========
 // Create a non-blocking TCP socket
 int create_nonblocking_socket(void);
+// Send full buffer reliably, returns true if all bytes sent
+ssize_t send_all(int fd, const void *buf, size_t len, int flags);
 // Get current time in milliseconds
 int64_t current_time_ms(void);
 

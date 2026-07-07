@@ -1,0 +1,5 @@
+[2026-07-07 13:38:05.154] [src/bus/bus_main.c:217] [LOG_LEVEL_INFO] Re-login to arbiter successful.
+[2026-07-07 13:38:05.154] [src/bus/bus_main.c:429] [LOG_LEVEL_INFO] Connected to primary bus for data sync.
+[2026-07-07 13:38:19.998] [src/bus/bus_main.c:123] [LOG_LEVEL_WARN] Arbiter disconnected, starting reconnect.
+[2026-07-07 13:38:19.998] [src/bus/bus_state_machine.c:70] [LOG_LEVEL_INFO] Arbiter disconnected, keeping current role 4
+[2026-07-07 13:38:19.999] [src/bus/bus_main.c:137] [LOG_LEVEL_INFO] Reconnect arbiter in 1000 ms (retry=1)

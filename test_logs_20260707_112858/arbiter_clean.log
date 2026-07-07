@@ -1,0 +1,48 @@
+[2026-07-07 11:29:28.199] [src/arbiter/arbiter_main.c:261] [LOG_LEVEL_INFO] Arbiter started on port 4000
+[2026-07-07 11:29:29.206] [src/arbiter/arbiter_logic.c:166] [LOG_LEVEL_INFO] [FO] pri=bus_primary last_hb=1783394969005 now=1783394969206 elapsed=201 timeout=5000
+[2026-07-07 11:29:30.212] [src/arbiter/arbiter_logic.c:166] [LOG_LEVEL_INFO] [FO] pri=bus_primary last_hb=1783394969005 now=1783394970212 elapsed=1207 timeout=5000
+[2026-07-07 11:29:31.221] [src/arbiter/arbiter_logic.c:166] [LOG_LEVEL_INFO] [FO] pri=bus_primary last_hb=1783394971021 now=1783394971221 elapsed=200 timeout=5000
+[2026-07-07 11:29:32.231] [src/arbiter/arbiter_logic.c:166] [LOG_LEVEL_INFO] [FO] pri=bus_primary last_hb=1783394971021 now=1783394972231 elapsed=1210 timeout=5000
+[2026-07-07 11:29:32.239] [src/arbiter/arbiter_main.c:168] [LOG_LEVEL_WARN] Bus node disconnected, fd=5
+[2026-07-07 11:29:32.239] [src/arbiter/arbiter_main.c:168] [LOG_LEVEL_WARN] Bus node disconnected, fd=6
+[2026-07-07 11:29:33.241] [src/arbiter/arbiter_logic.c:166] [LOG_LEVEL_INFO] [FO] pri=bus_primary last_hb=1783394971021 now=1783394973241 elapsed=2220 timeout=5000
+[2026-07-07 11:29:34.258] [src/arbiter/arbiter_logic.c:166] [LOG_LEVEL_INFO] [FO] pri=bus_primary last_hb=1783394974057 now=1783394974258 elapsed=201 timeout=5000
+[2026-07-07 11:29:35.259] [src/arbiter/arbiter_logic.c:166] [LOG_LEVEL_INFO] [FO] pri=bus_primary last_hb=1783394974057 now=1783394975259 elapsed=1202 timeout=5000
+[2026-07-07 11:29:36.205] [src/arbiter/arbiter_logic.c:166] [LOG_LEVEL_INFO] [FO] pri=bus_primary last_hb=1783394976105 now=1783394976205 elapsed=100 timeout=5000
+[2026-07-07 11:29:37.207] [src/arbiter/arbiter_logic.c:166] [LOG_LEVEL_INFO] [FO] pri=bus_primary last_hb=1783394976105 now=1783394977207 elapsed=1102 timeout=5000
+[2026-07-07 11:29:38.224] [src/arbiter/arbiter_logic.c:166] [LOG_LEVEL_INFO] [FO] pri=bus_primary last_hb=1783394978124 now=1783394978224 elapsed=100 timeout=5000
+[2026-07-07 11:29:38.730] [src/arbiter/arbiter_main.c:168] [LOG_LEVEL_WARN] Bus node disconnected, fd=6
+[2026-07-07 11:29:39.231] [src/arbiter/arbiter_logic.c:166] [LOG_LEVEL_INFO] [FO] pri=bus_primary last_hb=1783394978124 now=1783394979231 elapsed=1107 timeout=5000
+[2026-07-07 11:29:40.229] [src/arbiter/arbiter_logic.c:166] [LOG_LEVEL_INFO] [FO] pri=bus_primary last_hb=1783394978124 now=1783394980229 elapsed=2105 timeout=5000
+[2026-07-07 11:29:41.230] [src/arbiter/arbiter_logic.c:166] [LOG_LEVEL_INFO] [FO] pri=bus_primary last_hb=1783394978124 now=1783394981230 elapsed=3106 timeout=5000
+[2026-07-07 11:29:42.237] [src/arbiter/arbiter_logic.c:166] [LOG_LEVEL_INFO] [FO] pri=bus_primary last_hb=1783394978124 now=1783394982237 elapsed=4113 timeout=5000
+[2026-07-07 11:29:43.239] [src/arbiter/arbiter_logic.c:166] [LOG_LEVEL_INFO] [FO] pri=bus_primary last_hb=1783394978124 now=1783394983239 elapsed=5115 timeout=5000
+[2026-07-07 11:29:43.240] [src/arbiter/arbiter_main.c:191] [LOG_LEVEL_INFO] Sending FAILOVER_COMMAND to bus_secondary, epoch 1
+[2026-07-07 11:29:43.240] [src/arbiter/arbiter_logic.c:192] [LOG_LEVEL_INFO] Old primary bus_primary marked for DEGRADE_COMMAND, new epoch=1
+[2026-07-07 11:29:43.240] [src/arbiter/arbiter_main.c:160] [LOG_LEVEL_INFO] Received FAILOVER_ACK from bus_secondary
+[2026-07-07 11:29:44.242] [src/arbiter/arbiter_logic.c:166] [LOG_LEVEL_INFO] [FO] pri=bus_secondary last_hb=1783394983240 now=1783394984242 elapsed=1002 timeout=5000
+[2026-07-07 11:29:45.243] [src/arbiter/arbiter_logic.c:166] [LOG_LEVEL_INFO] [FO] pri=bus_secondary last_hb=1783394985243 now=1783394985243 elapsed=0 timeout=5000
+[2026-07-07 11:29:45.741] [src/arbiter/arbiter_logic.c:62] [LOG_LEVEL_WARN] Login from older epoch node bus_primary (epoch 0 < 1), accepting as SECONDARY
+[2026-07-07 11:29:46.242] [src/arbiter/arbiter_logic.c:166] [LOG_LEVEL_INFO] [FO] pri=bus_secondary last_hb=1783394985243 now=1783394986242 elapsed=999 timeout=5000
+[2026-07-07 11:29:46.550] [src/arbiter/arbiter_main.c:168] [LOG_LEVEL_WARN] Bus node disconnected, fd=5
+[2026-07-07 11:29:47.251] [src/arbiter/arbiter_logic.c:166] [LOG_LEVEL_INFO] [FO] pri=bus_secondary last_hb=1783394985243 now=1783394987251 elapsed=2008 timeout=5000
+[2026-07-07 11:29:48.252] [src/arbiter/arbiter_logic.c:166] [LOG_LEVEL_INFO] [FO] pri=bus_secondary last_hb=1783394985243 now=1783394988252 elapsed=3009 timeout=5000
+[2026-07-07 11:29:49.254] [src/arbiter/arbiter_logic.c:166] [LOG_LEVEL_INFO] [FO] pri=bus_secondary last_hb=1783394985243 now=1783394989254 elapsed=4011 timeout=5000
+[2026-07-07 11:29:50.257] [src/arbiter/arbiter_logic.c:166] [LOG_LEVEL_INFO] [FO] pri=bus_secondary last_hb=1783394985243 now=1783394990257 elapsed=5014 timeout=5000
+[2026-07-07 11:29:50.257] [src/arbiter/arbiter_main.c:191] [LOG_LEVEL_INFO] Sending FAILOVER_COMMAND to bus_primary, epoch 2
+[2026-07-07 11:29:50.257] [src/arbiter/arbiter_logic.c:192] [LOG_LEVEL_INFO] Old primary bus_secondary marked for DEGRADE_COMMAND, new epoch=2
+[2026-07-07 11:29:50.257] [src/arbiter/arbiter_main.c:160] [LOG_LEVEL_INFO] Received FAILOVER_ACK from bus_primary
+[2026-07-07 11:29:51.259] [src/arbiter/arbiter_logic.c:166] [LOG_LEVEL_INFO] [FO] pri=bus_primary last_hb=1783394990257 now=1783394991259 elapsed=1002 timeout=5000
+[2026-07-07 11:29:52.260] [src/arbiter/arbiter_logic.c:166] [LOG_LEVEL_INFO] [FO] pri=bus_primary last_hb=1783394990257 now=1783394992260 elapsed=2003 timeout=5000
+[2026-07-07 11:29:53.262] [src/arbiter/arbiter_logic.c:166] [LOG_LEVEL_INFO] [FO] pri=bus_primary last_hb=1783394992261 now=1783394993262 elapsed=1001 timeout=5000
+[2026-07-07 11:29:53.564] [src/arbiter/arbiter_logic.c:62] [LOG_LEVEL_WARN] Login from older epoch node bus_secondary (epoch 0 < 2), accepting as SECONDARY
+[2026-07-07 11:29:54.265] [src/arbiter/arbiter_logic.c:166] [LOG_LEVEL_INFO] [FO] pri=bus_primary last_hb=1783394992261 now=1783394994265 elapsed=2004 timeout=5000
+[2026-07-07 11:29:54.373] [src/arbiter/arbiter_main.c:168] [LOG_LEVEL_WARN] Bus node disconnected, fd=6
+[2026-07-07 11:29:54.373] [src/arbiter/arbiter_main.c:168] [LOG_LEVEL_WARN] Bus node disconnected, fd=5
+[2026-07-07 11:29:55.274] [src/arbiter/arbiter_logic.c:166] [LOG_LEVEL_INFO] [FO] pri=bus_primary last_hb=1783394994267 now=1783394995274 elapsed=1007 timeout=5000
+[2026-07-07 11:29:56.276] [src/arbiter/arbiter_logic.c:166] [LOG_LEVEL_INFO] [FO] pri=bus_primary last_hb=1783394994267 now=1783394996276 elapsed=2009 timeout=5000
+[2026-07-07 11:29:57.278] [src/arbiter/arbiter_logic.c:166] [LOG_LEVEL_INFO] [FO] pri=bus_primary last_hb=1783394994267 now=1783394997278 elapsed=3011 timeout=5000
+[2026-07-07 11:29:58.279] [src/arbiter/arbiter_logic.c:166] [LOG_LEVEL_INFO] [FO] pri=bus_primary last_hb=1783394994267 now=1783394998279 elapsed=4012 timeout=5000
+[2026-07-07 11:29:59.281] [src/arbiter/arbiter_logic.c:166] [LOG_LEVEL_INFO] [FO] pri=bus_primary last_hb=1783394994267 now=1783394999281 elapsed=5014 timeout=5000
+[2026-07-07 11:29:59.381] [src/arbiter/arbiter_logic.c:62] [LOG_LEVEL_WARN] Login from older epoch node bus_primary (epoch 0 < 3), accepting as SECONDARY
+[2026-07-07 11:30:00.187] [src/arbiter/arbiter_logic.c:62] [LOG_LEVEL_WARN] Login from older epoch node bus_secondary (epoch 0 < 3), accepting as SECONDARY

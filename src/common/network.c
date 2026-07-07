@@ -112,6 +112,23 @@ int64_t current_time_ms(void) {
     return (int64_t)tv.tv_sec * 1000 + tv.tv_usec / 1000;
 }
 
+// Send all bytes in the buffer, returns number of bytes sent or -1 on failure
+ssize_t send_all(int fd, const void *buf, size_t len, int flags) {
+    const uint8_t *p = buf;
+    size_t remaining = len;
+    while (remaining > 0) {
+        ssize_t sent = send(fd, p, remaining, flags);
+        if (sent < 0) {
+            if (errno == EINTR) continue;
+            return -1;
+        }
+        if (sent == 0) break;
+        p += sent;
+        remaining -= sent;
+    }
+    return (ssize_t)(len - remaining);
+}
+
 // Attempt connection, returns 0 on success, 1 if in progress, -1 on error
 int try_connect(ReconnectContext *ctx) {
     int ret = connect(ctx->fd, (struct sockaddr*)&ctx->target_addr, sizeof(ctx->target_addr));
@@ -223,6 +240,7 @@ int register_handler(int fd, short events, event_callback cb, void *arg) {
         epoll_fd = epoll_create1(0);
         if (epoll_fd < 0) {
             LOG_ERROR("epoll_create1 failed: %s", strerror(errno));
+            handler_count--;
             return -1;
         }
     }

@@ -160,6 +160,14 @@ bool process_device_packet(const DeviceDataPacketMessage *msg, WriteResponseMess
         return false;
     }
 
+    if (msg->payload_size > PAYLOAD_MAX_LEN) {
+        LOG_WARN("Device packet payload too large: %u bytes", msg->payload_size);
+        resp->success = 0;
+        protocol_hton_header(&resp->header);
+        resp->message_id = c11_htobe64(resp->message_id);
+        return false;
+    }
+
     uint64_t log_id = append_local_log(msg->payload, msg->payload_size);
     bool sync_ok = false;
 
